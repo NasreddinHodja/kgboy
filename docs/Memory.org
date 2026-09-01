@@ -1,0 +1,88 @@
+#+title: Memory
+
+* Bits and Bytes
+
++ 1 byte = 8 bits
+  - can have 2^8 = 256 value
+
++ HEX digit = 0-F
+  - 16 (2^4) possible values
+    - 2^4 bits is called a "nibble"
+  - 1 HEX digit is how many bytes?
+    - 2^4 * 2^4 = 2^8 -> 2 digits for 1 byte
+
+** Orders of magnitude
+| decimal name | bytes            | binary name (IEC) | bytes            |
+|--------------+------------------+-------------------+------------------|
+| Byte     B   | 10^0 = 1         | Byte     B        | 2^0  = 1         |
+| Kilobyte KB  | 10^3 = 1_000     | Kibibyte KiB      | 2^10 = 1_024     |
+| Megabyte MB  | 10^6 = 1_000_000 | Mebibyte MiB      | 2^20 = 1_048_576 |
+| ...          | ...              | ...               | ...              |
+
+** Addresses
++ 16-bit address bus -> our addresses are 16 bits
+  - 16 = 2^4 * 2^4 * 2^4 * 2^4 -> 4 HEX digits to express it
++ each address encodes one byte?
+
+*** Example
+VRAM starts after 32KiB from 0 and has 8KiB of capacity. What are the start and end addresses?
+
+Start:
++ 0 + 32KiB -> 32 * 2^10 Bytes = 2^5 * 2^10 = 2^15
++ in hex: 2^15 = 0b1000_0000_0000_0000 = 0x8000
+
+End:
++ 8 KiB -> 2^3 * 2^10 = 2^13
++ in hex: 2^13 = 0b0010_0000_0000_0000 = 0x2000
++ addres of next section is start + size -> 0x8000 + 0x2000 -> 0xA000
++ so our section ends at 0xA000 - 0x1 = 0x9FFF
+
+*** Heuristic
+Will eventually memorize this:
+| 1 KiB  | 0x0400 |
+| 2 KiB  | 0x0800 |
+| 4 KiB  | 0x1000 |
+| 8 KiB  | 0x2000 |
+| 16 KiB | 0x4000 |
+
+As we double bytes, this pattern will repeat
++ 1 -> 2 -> 4 -> 8 -> lshift
+  - 0001 -> 0010 -> 0100 -> 1000 -> 1 0000
+* Layout
+
+GB has 16-bit address bus which addresses ROM, RAM, I/O
+
+| start  | end    | desc                             | notes                                 |
+|--------+--------+----------------------------------+---------------------------------------|
+| =0000= | =3FFF= | 16 KiB ROM bank 00               | From cart, suually a fixed bank       |
+| =4000= | =7FFF= | 16 KiB ROM bank 01-NN            | From cart, switchable bank via mapper |
+| =8000= | =9FFF= | 8 KiB Video RAM (*VRAM*)         | In CGB mode, switchable bank 0/1      |
+| =A000= | =BFFF= | 8 KiB External ram               | From cart, switchable bank if any     |
+| =C000= | =CFFF= | 4 KiB Work RAM (*WRAM*)          |                                       |
+| =D000= | =DFFF= | 4 KiB Work RAM (*WRAM*)          | In CGB mode, switchable bank 1-7      |
+| =E000= | =FDFF= | Echo RAM (mirror C000-DDFF)      | Nintendo prohibits use of this area   |
+| =FE00= | =FE9F= | Object Attribute Memory (*OAM*)  |                                       |
+| =FEA0= | =FEFF= | Not usable                       | Nintento prohibits use of this area   |
+| =FF00= | =FF7F= | I/O regs                         |                                       |
+| =FF80= | =FFFE= | High RAM (*HRAM*)                |                                       |
+| =FFFF= | =FFFF= | Interrupt Enable Register (*IE*) |                                       |
+
+** I/O Ranges
+| start  | end    | purpose                                              |
+|--------+--------+------------------------------------------------------|
+| =FF00= |        | Joypad input                                         |
+| =FF01= | =FF02= | Serial transfer                                      |
+| =FF04= | =FF07= | Timer and divider                                    |
+| =FF0F= |        | Interupts                                            |
+| =FF10= | =FF26= | Audio                                                |
+| =FF30= | =FF3F= | Wave pattern                                         |
+| =FF40= | =FF4B= | LCD Control, status, postion, scrolling and palettes |
+| =FF46= |        | OAM DMA transfer                                     |
+| =FF4C= | =FF4D= | KEY0 and KEY1                                        |
+| =FF4F= |        | VRAM bank select                                     |
+| =FF50= |        | Boot ROM mapping control                             |
+| =FF51= | =FF55= | VRAM DMA                                             |
+| =FF56= |        | IR port                                              |
+| =FF68= | =FF6B= | BG / OBJ palettes                                    |
+| =FF6C= |        | Object priority mode                                 |
+| =FF70= |        | WRAM bank space                                      |

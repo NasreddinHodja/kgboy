@@ -1,0 +1,6 @@
+#+title: References
+
+* Refs
++ [[https://gbdev.io/pandocs/Memory_Map.html]]
++ [[http://marc.rawer.de/Gameboy/Docs/GBCPUman.pdf]]
+

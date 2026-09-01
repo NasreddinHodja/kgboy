@@ -1,0 +1,19 @@
+[
+  {
+    "file": "src/cpu.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c17",
+      "-g",
+      "-Iinclude",
+      "-c",
+      "src/cpu.c",
+      "-o",
+      "build/cpu.o"
+    ],
+    "directory": "/home/nasreddin/Prog/kgboy",
+    "output": "build/cpu.o"
+  }
+]
