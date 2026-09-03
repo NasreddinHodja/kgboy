@@ -13,8 +13,6 @@ void cpu_init(struct cpu_registers *regs) {
 }
 
 void cpu_skip_boot(struct cpu_registers *regs, struct memory *mem) {
-    mem_load_rom(mem, "rom.bin");
-
     regs->a = 0x01;
     regs->f = 0xB0;
     regs->b = 0x00;
@@ -25,18 +23,24 @@ void cpu_skip_boot(struct cpu_registers *regs, struct memory *mem) {
     regs->l = 0x4D;
     regs->pc = 0x0100;
     regs->sp = 0xFFFE;
+    mem_write(mem, 0xFF40, 0x91);
+    mem_write(mem, 0xFF41, 0x85);
+    mem_write(mem, 0xFF47, 0xFC);
+    mem_write(mem, 0xFF0F, 0xE1);
+    mem_write(mem, 0xFFFF, 0x00);
 }
 
-void cpu_step(struct cpu_registers *regs, struct memory *mem) {
+uint8_t cpu_step(struct cpu_registers *regs, struct memory *mem) {
     // 1. fetch: read the byte at PC, increment PC
     uint8_t opcode = mem_read(mem, regs->pc++);
 
     // 2. decode: opcode -> what to do
     switch (opcode) {
     // 3. execute: do
-    case 0x00:
-        fprintf(stdout, "NOP!!!\n");
-        break;
+    case 0x00: // NOP
+        fprintf(stdout, "%04X: %02X = NOP\n",
+                (unsigned int)(regs->pc - 1), opcode);
+        return 4;
     default:
         fprintf(stderr, "opcode: %02X\n", opcode);
         fprintf(stderr, "pc    : %04X\n", (unsigned int)(regs->pc - 1));

@@ -54,7 +54,7 @@ struct cpu_registers {
 
 void cpu_init(struct cpu_registers *regs);
 void cpu_skip_boot(struct cpu_registers *regs, struct memory *mem);
-void cpu_step(struct cpu_registers *regs, struct memory *mem);
+uint8_t cpu_step(struct cpu_registers *regs, struct memory *mem);
 
 void cpu_registers_print(struct cpu_registers *regs);
 

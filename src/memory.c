@@ -3,63 +3,131 @@
 #include <string.h>
 #include <stdlib.h>
 
-// TODO: we will have to move these eventually,
-// or think better about how to keep these definitions
-// so we don't have magic numbers
-#define ROM_BANK_00 0x0000
-#define ROM_BANK_SIZE (16 * 1024)
+void mem_init(struct memory *mem, struct cart *cart) {
+    memset(mem, 0, sizeof(*mem));
+    mem->cart = cart;
+}
 
-void mem_init(struct memory *mem) {
-    memset(mem->data, 0, MEM_SIZE);
+static uint8_t mem_read_high(struct memory *mem, uint16_t addr) {
+    // still in echo RAM
+    if (addr < 0xFE00)
+        return mem->wram[addr & 0x1FFF];
+    // OAM
+    if (addr < 0xFEA0) { 
+        return mem->oam[addr - 0xFE00];
+    // NOT USABLE
+    } else if (addr < 0xFF00) { 
+        return 0xFF;
+    // IO registers
+    } else if (addr < 0xFF80) { 
+        return mem->io[addr - 0xFF00];
+    // HRAM
+    } else if (addr < 0xFFFF) {
+        return mem->hram[addr - 0xFF80];
+    // IE register
+    } else { 
+        return mem->ie;
+    }
+    return 0xFF;
 }
 
 uint8_t mem_read(struct memory *mem, uint16_t addr) {
-    return mem->data[addr];
-}
-void mem_write(struct memory *mem, uint16_t addr, uint8_t val) {
-    mem->data[addr] = val;
-}
-
-int mem_load_rom(struct memory *mem, const char *path) {
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        perror("fopen");
-        return -1;
+    switch (addr >> 12) {
+        // ROM bank 00
+        case 0x0: case 0x1: case 0x2: case 0x3: 
+        // ROM bank NN
+        case 0x4: case 0x5: case 0x6: case 0x7: 
+            return mem->cart->rom[addr];
+        // VRAM
+        case 0x8: case 0x9:
+            return mem->vram[addr & 0x1FFF];
+        // TODO: E(xternal)RAM
+        case 0xA: case 0xB:
+            return 0xFF;
+        // WRAM
+        case 0xC: case 0xD:
+            return mem->wram[addr & 0x1FFF];
+        // Echo RAM
+        case 0xE: 
+            return mem->wram[addr & 0x1FFF];
+        // high memory = echo ram, OAM, unusable, IO, HRAM, IE
+        case 0xF: 
+            return mem_read_high(mem, addr);
     }
+    return 0xFF;
+}
 
-    // 1. load rom bank 00
-    // 0000 to 3FFF -> 16KiB
-    
-    fread(mem->data, 1, ROM_BANK_SIZE, file);
+static void mem_write_high(struct memory *mem, uint16_t addr, uint8_t val) {
+    // LY guard
+    if (addr == 0xFF44) return;
 
-    // 2. TODO: loand bank 01-N
-    // (we will just ignore this for now)
+    // still in echo RAM
+    if (addr < 0xFE00) {
+        mem->wram[addr & 0x1FFF] = val;
+    // OAM
+    } else if (addr < 0xFEA0) { 
+        mem->oam[addr - 0xFE00] = val;
+    // NOT USABLE
+    } else if (addr < 0xFF00) { 
+        return;
+    // IO registers
+    } else if (addr < 0xFF80) { 
+        mem->io[addr - 0xFF00] = val;
+    // HRAM
+    } else if (addr < 0xFFFF) {
+        mem->hram[addr - 0xFF80] = val;
+    // IE register
+    } else { 
+        mem->ie = val;
+    }
+    return;
+}
 
-    fclose(file);
-
-    return 0;
+void mem_write(struct memory *mem, uint16_t addr, uint8_t val) {
+    switch (addr >> 12) {
+        // ROM bank 00 & NN
+        case 0x0: case 0x1: case 0x2: case 0x3: 
+        case 0x4: case 0x5: case 0x6: case 0x7: 
+            break;
+        // VRAM
+        case 0x8: case 0x9:
+            mem->vram[addr & 0x1FFF] = val;
+            break;
+        // TODO: E(xternal)RAM
+        case 0xA: case 0xB:
+            break;
+        // WRAM
+        case 0xC: case 0xD:
+            mem->wram[addr & 0x1FFF] = val;
+            break;
+        // Echo RAM
+        case 0xE: 
+            mem->wram[addr & 0x1FFF] = val;
+            break;
+        // high memory = echo ram, OAM, unusable, IO, HRAM, IE
+        case 0xF: 
+            mem_write_high(mem, addr, val);
+            break;
+    }
+    return;
 }
 
 int mem_print(struct memory *mem, uint16_t start, size_t length) {
-    if (start + length > MEM_SIZE) {
+    if ((size_t) start + length > 0x10000) {
         fprintf(stderr, "Memory out of bounds\n");
         return -1;
-    } 
-
+    }
     for (size_t i = 0; i < (length + 15) / 16; i++) {
         // print addr for line
-        fprintf(stdout, "%04X:  ",
-                (uint16_t) (start + (16 * i)));
-
+        fprintf(stdout, "%04X:  ", (uint16_t) (start + (16 * i)));
         // print data in line
         for (size_t j = 0; j < 16 && ((i * 16) + j) < length; j++) {
-            fprintf(stdout, "%02X ",
-                    mem->data[start + (i * 16) + j]);
+            uint16_t addr = (uint16_t) (start + (i * 16) + j);
+            fprintf(stdout, "%02X ", mem_read(mem, addr));
             if ((j + 1) % 4 == 0) fprintf(stdout, " ");
             if ((j + 1) % 8 == 0) fprintf(stdout, " ");
         }
         fprintf(stdout, "\n");
     }
-
     return 0;
 }
