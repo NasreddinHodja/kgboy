@@ -60,8 +60,8 @@ void display_destroy(struct display *display) {
     SDL_Quit();
 }
 
-void display_present(struct display *display, const uint8_t (*fb)[SCREEN_W],
-                     uint8_t bgp) {
+void display_present(struct display *display,
+                     const uint8_t fb[SCREEN_H][SCREEN_W], uint8_t bgp) {
     for (size_t line = 0; line < SCREEN_H; line++) {
         for (size_t col = 0; col < SCREEN_W; col++) {
             const uint8_t shade = (bgp >> (fb[line][col] * 2)) & 3;
@@ -102,7 +102,8 @@ void display_present(struct display *display, const uint8_t (*fb)[SCREEN_W],
 bool display_poll() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
-        if (e.type == SDL_QUIT) return false;
+        if (e.type == SDL_QUIT)
+            return false;
     }
     return true;
 }

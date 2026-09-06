@@ -1,9 +1,9 @@
 #ifndef BUS_H_
 #define BUS_H_
 
+#include "cart.h"
 #include <stddef.h>
 #include <stdint.h>
-#include "cart.h"
 
 enum Interrupt {
     INT_VBLANK,
@@ -16,6 +16,8 @@ enum Interrupt {
 struct bus {
     struct cart *cart;
     struct ppu *ppu;
+    struct timer *timer;
+
     uint8_t vram[0x2000];
     uint8_t wram[0x2000];
     // [ 0xE000, 0xFDFF ] ECHO RAM
@@ -26,7 +28,8 @@ struct bus {
     uint8_t ie;
 };
 
-void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu);
+void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu,
+                  struct timer *timer);
 uint8_t bus_mem_read8(struct bus *bus, uint16_t addr);
 void bus_mem_write8(struct bus *bus, uint16_t addr, uint8_t val);
 uint16_t bus_mem_read16(struct bus *bus, uint16_t addr);

@@ -1,0 +1,49 @@
+#+title: Interrupts
+
+* IME - Input Master Enable
+bool that controls whether any interrupt handlers are called.
+
++ =ei= -> ime = 1 (delayed 1 instruction)
++ =di= -> ime = 0
++ =reti= -> ei, ret
++ when inter handler is executed: disables all interrupts before =call= on the inter handler
++ when game starts running: ime = 0
+  
+* FFFF - IE: Interrupt Enable
+Controls whether each interrupt handler can me called
+
+| 7 6 5 |      4 |      3 |     2 |   1 |     0 |
+|-------+--------+--------+-------+-----+-------|
+| -     | joypad | serial | timer | lcd | blank |
+
+* FF0F - IF: Interrupt Flag
+Controls whether each interrupt handler is being requested
+
+| 7 6 5 |      4 |      3 |     2 |   1 |     0 |
+|-------+--------+--------+-------+-----+-------|
+| -     | joypad | serial | timer | lcd | blank |
+
+* Interrupt handling
+1. the =IF= bit for this interrupt and the =IME= flag are reset by the CPU
+2. corresponding interr handles is called by the CPU (regular =call=)
+
+Interrupt service routine executed when control is being transferred to an interrupt handler:
+1. 2 =wait= states executed (8t-cycles pass while nothing happens, =nop= presumably)
+2. curr value of PC is pushed, 8t-cycles
+3. PC set to the addr of the handler. One of: (consuming 4 cicles)
+   + =$40=
+   + =$48=
+   + =$50=
+   + =$58=
+   + =$60=
+
+* Interrupt priorities
+Follows the order of the IE and IF bits
+
+* Interrupt sources
+** INT $40 - VBlank interrupt
++ requested everytime enters VBlank
++ vram may be accessed by non ppu
+
+** INT $48 - STAT interrupt
+   

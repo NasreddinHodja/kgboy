@@ -51,6 +51,10 @@ struct cpu_regs {
 
     uint16_t sp;
     uint16_t pc;
+
+    bool ime;
+    bool ime_pending;
+    bool halted;
 };
 
 void cpu_init(struct cpu_regs *regs);

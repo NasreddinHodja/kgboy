@@ -1,13 +1,16 @@
 #include "bus.h"
+#include "timer.h"
 #include "ppu.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu) {
+void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu,
+                  struct timer *timer) {
     memset(bus, 0, sizeof(*bus));
     bus->cart = cart;
     bus->ppu = ppu;
+    bus->timer = timer;
 }
 
 static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
@@ -23,6 +26,8 @@ static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
         // IO registers
     } else if (addr == 0xFF0F) {
         return bus->io[0x0F] | 0xE0; // IE top 3 bits are always 1
+    } else if (addr >= 0xFF04 && addr <= 0xFF07) {
+        return timer_read_r(bus->timer, addr);
     } else if (addr >= 0xFF40 && addr <= 0xFF4B) {
         return ppu_read_r(bus->ppu, addr);
     } else if (addr < 0xFF80) {
@@ -76,10 +81,6 @@ uint16_t bus_mem_read16(struct bus *bus, uint16_t addr) {
 }
 
 static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
-    // LY guard
-    if (addr == 0xFF44)
-        return;
-
     // still in echo RAM
     if (addr < 0xFE00) {
         bus->wram[addr & 0x1FFF] = val;
@@ -89,6 +90,13 @@ static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
         // NOT USABLE
     } else if (addr < 0xFF00) {
         return;
+    } else if (addr == 0xFF02 && (val & (1 << 7))) { // serial
+        putchar(bus->io[0x01]);
+        fflush(stdout);
+        bus->io[0x02] = val & ~(1 << 7);
+        bus_request_interrupt(bus, INT_SERIAL);
+    } else if (addr >= 0xFF04 && addr <= 0xFF07) { // timer
+        timer_write_r(bus->timer, addr, val);
         // IO registers
     } else if (addr >= 0xFF40 && addr <= 0xFF4B) {
         ppu_write_r(bus->ppu, addr, val);

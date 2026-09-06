@@ -1,0 +1,5 @@
+#+title: Timer
+
+* tick
++ tima has to increment every N cycle, N = {1024, 16, 46, or 256}[tac & 4]
+
