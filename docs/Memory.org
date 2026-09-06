@@ -86,3 +86,79 @@ GB has 16-bit address bus which addresses ROM, RAM, I/O
 | =FF68= | =FF6B= | BG / OBJ palettes                                    |
 | =FF6C= |        | Object priority mode                                 |
 | =FF70= |        | WRAM bank space                                      |
+
+* Impleme
++ have different regions as different struct fields.
++ read/write functions handle addr translation
+
+* VRAM
+RAM that the PPU interprets in a specific way
+
+(no bank 1 except on CGB)
+
+** Tiles
+Each bank first has 384 tiles of 16 bytes each.
++ commonly thought of as grouped in three "blocks" of 128 tiles each
+
++ ID of tile = address / 16 mod 256.
+  - id = addr & 0FF0
+
+** Maps
+after the tiles, 2 maps of 32x32 bytes each
+
+Each entry corresponds to a set of coords that we get from the addr:
++ x = addr mod 32 = addr & 0x1F
++ y = addr / 32 mod 32 = (addr >> 5) & 0x1F
+
+The address of an entry can be though of as a bitfield:
+| 15 | 14 | 13 | 12 | 11 |      10 | 9 8 7 6 5 | 4 3 2 1 0 |
+|----+----+----+----+----+---------+-----------+-----------|
+|  1 |  0 |  0 |  1 |  1 | tilemap | y         | x         |
+
+
+* Jump Vectors in ROM bank 0
+The following addresses are supposed to be used as jump vectors:
+
++ RST instructions: 0000, 0008, 0010, 0018, 0020, 0028, 0030, 0038
++ Interrupts: 0040, 0048, 0050, 0058, 0060
+
+However, this memory area (0000-00FF) may be used for any other purpose in case that your program doesn’t use any (or only some) rst instructions or interrupts.
++ rst is a 1-byte instruction that works similarly to the 3-byte call instruction, except that the destination address is restricted. Since it is 1-byte sized, it is also slightly faster.
+
+* Cart header in ROM bank 0
+0100-014F contains the cart header.
++ info
++ entry point
++ checksums
++ info about MCP used
++ ROM and RAM sizes
+
+* External memory and hardware
+the areas 0000-7FF and A000-BFFF address external hardware on cart, an expantion board.
+
++ Typically: ROM and SRAM, more often a MBC
+  - RAM is normal
+  - Writes to ROM control the MBC
+    - Some MBCs allow mapping of other hardware into RAM area
+
++ Cart RAM is often battery buffered to hold saved game data when GB is off.
+
+* Echo RAM
+Reads and writes have the same effect as to C000-DDFF
+
+Nintendo prohibits use
+
+* FEA0-FEFF
+Also prohibited.
+Returns $FF when OAM is blocked and otherwise reads during OAM block trigger OAM corruption ; reads otherwise return $00
+
+
+* Memory Bank Controllers (MBC)
+Many games use MBCs to expand the available address space by bank switching.
++ MBCs are located in the cart
++ in cart, the required (or preferred) MBC type should be specified in the byte at $0147 of ROM (cart header)
+
+** unmapped RAM bank access
+MBC just wraps around internal RAM addr
+The MBC internal address being accessed can be calculated using this formula:
++ ((address - external_ram_start_address) + (active_ram_bank * ram_bank_size)) % max_external_ram_size.

@@ -1,0 +1,17 @@
+#+title: Operations
+
+* OG
+There are 512 (- 11 unused) opcodes in total
+
+* Naming
+<opname>_<arg1>_<arg2>
+
++ m = memory addr
++ r8 = reg
++ r16 = reg pair
++ n8 = 8bit num
++ n16 = 16bit num
++ u8 
++ u16
++ e8
++ a16

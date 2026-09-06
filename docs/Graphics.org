@@ -1,0 +1,456 @@
+#+title: Graphics
+
+* the idea
++ 160x144 pixel LCD
+
+hardware builds the picture out of 3 layers of indirection. The ROM fills each one.
+
+** Tiles
+Pixels are not manipulated individually.
+
++ tile: 8x8 pixels square.
+
+A tile assigns color idxs [0, 3](2bpp) to each of it's pixels.
+
++ when a tile is used in Background or Window, these color indices are associated with a palettel
++ when a tile is used in an object, idxs 1 to 3 are associated with a palette, but ID 0 means transparent
+
+** Pallettes
+Array of 4 colors.
+
+** Layers
+3 layers from back to front:
++ Background
++ Window
++ Objects
+
+Some features and behaviors break this abstraction, but it works for the most part.
+
+** Background
+Composed of a tile map = large grid of refs of tiles.
+
+(We can write to 2 hardware regs and it scrolls as a whole)
+
+** Window
+Second bg layer of top of the Background.
+Fairly limitel:
++ no transparency
++ always rectangle
++ only pos of top-left pixel can be controlled
+
+use it to make fixed statusbar or and shit
+
+** Objects
++ 1 or 2 stacked tiles (8x8 or 8x16)
++ displayed anywhere on the screnn
++ moves indivitually
++ it's an entry in OAM
+
+* Tile data
++ stored in VRAM $8000-97FF
++ area defines data for 384 tiles
++ each tile 16 bytes
++ each tile has 8x8 pixels and has color depth of 2bpp (4 color or gray shades)
+  - for objects, color 0 is transparent
+
+There are 3 blocks of 128 tiles each:
++ block 0 $8000-87FF
+  - objs: 0-127
+  - bg/win if LCDC.4 = 1: 0-127
+  - bg/win if LCDC.4 = 0: -
++ block 1 $8800-8FFF
+  - objs: 128-255
+  - bg/win if LCDC.4 = 1: 128-255
+  - bg/win if LCDC.4 = 0: -
++ block 2 $9000-97FF
+  - objs: -
+  - bg/win if LCDC.4 = 1: 128-255
+  - bg/win if LCDC.4 = 0: 0-127
+
+Tiles are indexed using int8 by either:
++ $8000 method: $8000 + unsigned addr
+  - 0-127 are in block 0
+  - 128-255 are in block 1
++ $8800 method: $8800 + signed addr
+  - -128--1 are in block 1
+  - 0-127 are in block 2
+
++ objs always use $8000 addressing
++ bg/win use either depending of 4th bit of LCDC
+
+** Data format
+each tile occupies 16 bytes, where each line is represented by 2 bytes
+| byte         | 1ts          2nd          | 3rd       4th | ... |
+|--------------+---------------------------+---------------+-----|
+| explaination | topmost line (top 8 pixs) | 2nd line      |     |
+
+For each line:
+- 1st byte = lsb of the color ID of pix
+- 2nd byte = msb """
+- in both bytes, bit 7 represents the leftmost pixel and 0 the rightmost  
+
+Example: 
++ tile_data = { $3C $7E $42 $42 $42 $42 $42 $42 $7E $5E $7E $0A $7C $56 $38 $7C }
+
+Break up the rows:
+#+begin_example
+tile_data = {
+    $3C $7E
+    $42 $42
+    $42 $42
+    $42 $42
+    $7E $5E
+    $7E $0A
+    $7C $56
+    $38 $7C
+}
+#+end_example
+
+To bin:
+#+begin_example
+tile_data = {
+    00111100  01111110
+    01000010  01000010
+    01000010  01000010
+    01000010  01000010
+    01111110  01011110
+    01111110  00001010
+    01111100  01010110
+    00111000  01111100
+}
+#+end_example
+
+Join lsb and msb:
+#+begin_example
+tile_data = {
+    00 10 11 11 11 11 10 00
+    00 11 00 00 00 00 11 00
+    00 11 00 00 00 00 11 00
+    00 11 00 00 00 00 11 00
+    00 11 01 11 11 11 11 00
+    00 01 01 01 11 01 11 00
+    00 11 01 11 01 01 10 00
+    00 10 11 11 01 10 00 00
+}
+#+end_example
+
+Let's make our own little ascii palette just to visualize our result:
+#+begin_example
+Palette:
+        00 = .
+        01 = C
+        11 = X
+        10 = -
+
+tile_data = {
+    . - X X X X - .
+    . X . . . . X .
+    . X . . . . X .
+    . X . . . . X .
+    . X C X X X X .
+    . C C C X C X .
+    . X C X C X - .
+    . - X X X - . .
+}
+#+end_example
+
+Yay!
+
++ we can use [[https://www.huderlem.com/demos/gameboy2bpp.html][this]] to visualize GB 2bpp graphics!
+
+* Tile maps
+GB has 2 32x32 tile maps in VRAM at the memory areas $9800-$9BFF and $9C00-$9FFF.
+Any of these can be used to display bg or window
+
+** Tile idxs
++ Each tile map contains 1byte indexes of the tiles to be displayed
++ tiles are obtained from m the Tile Data Table using either of the 2 addressing methods, which can be selected via the LCDC register.
+
++ 1 tile is 8x8 pixs -> each maps holds 256x256 pixs
++ only 160x144 of those are displayed on the LCD at any given time
+
+** Background
++ The SCY and SCX regs can be used to scroll the bg, specifiying the og of the visible 160x144 pixel area within the total 256x256 pixs bg map.
++ visible area of the bg wraps around the bg map
+
+** Window
++ not scrollable
++ always displayed starting at the top-left tile of its tile map
++ only way to adjus the win is by mod it's pos on the screen with WX and WY regs
++ both the bg and win share the same Tile Data Table
+
+*** internal line counter
++ like LY but specific to the window
+  - what line of the window is to be rendered on the curr scanline
++ increment with LY
+  - only inc when win is visible
+
+* Object Attribute Memory (OAM)
++ PPU can display up to40 movable objs, each 8x8 or 8x16 pixs.
+  - only 10 per scraline
++ obj tiles have same format as bg tiles but taken from tile blocks 0 and 1 and have unsigned numbering
+
+Each of the 40 entries in OAM consists of 4 bytes:
++ byte 0 - Y pos
+  - Y = vert pos on screen + 16
++ byte 1 - X pos
+  - X = horiz pos on screen + 8
++ byte 2 - tile idx
+  - u16 that selects tile from $8000-$8FFF
+  - in 8x16 mode, top tile is TILE_IDX & $FE and bottom is TILE_IDX | $01 
++ byte 3 - attribs/flags
+  |        7 |      6 |      5 |           4 |    3 | 2  1  0     |
+  |----------+--------+--------+-------------+------+-------------+
+  | priority | Y flip | X flip | DMG palette | bank | CGB palette |
+
+  - priority: 0 = no, 1 = bg and win color indices 1-3 are drawn over this obj
+
+** Writin data to OAM
+Recommended:
+1. write to a buffer in normal ram (typically WRAM)
+2. copy buffer to OAM using the DMA transfer functionality
+
++ writing directly to OAM works only tuding HBlank and VBlank
+
+** Object priority & conflicts
+There are 2 kinds of priorities
+
+1. selection priority
+   - during each scanline's OAM scar, the PPU compares LY (using LCDC.2) to each obj's Y pos to select up to the first 10 objs to be drawn
+   - since it only looks at Y, even offscreen (to the sides) objs count
+     - this is why we keep offscreen objs at the top/bottom
+
+2. drawing priority
+   - when opaque (c > 0) pix from 2 objs overlap, which pixel ends up being displayed is determined by this priority
+   - in non-CGB the smaller the X coord, the higher the priority
+   - when 2 have the same X then the first in OAM wins
+
+** OAM DMA transfer
+*** FF46 - DMA
+Writing to this addr start a DMA trasfer from ROM or RAM to OAM
+
++ the written values specify the source addr divided by $100
+  - src: $XX00-$XX9F where XX = $00 to $DF
+  - dst: $FE00-$FE9F
++ transfer takes 160 m-cycles / 640 t-cycles
+  - much faster than cpu driven copy
+
+*** OAM DMA bus conflict
+On DMG, during OAM DMA, the CPU can access only HRAM.
+Because of this, the programmer must copy a short procedure into HRAM, and use this proc to start the transfer from inside HRAM, and wait until the transfer has finished.
+
+#+begin_src asm
+run_dma:
+    ld a, HIGH(start address)
+    ldh [$FF46], a  ; start DMA transfer (starts right after instruction)
+    ld a, 40        ; delay for a total of 4×40 = 160 M-cycles
+.wait
+    dec a           ; 1 M-cycle
+    jr nz, .wait    ; 3 M-cycles
+    ret
+#+end_src
+
+Or (save 5bytes of HRAM at the cost of a few m-cycles)
+
+#+begin_src asm
+run_dma:          ; This part must be in ROM.
+    ld a, HIGH(start address)
+    ld bc, $2846  ; B: wait time; C: LOW($FF46)
+    jp run_dma_tail
+
+
+run_dma_tail:     ; This part must be in HRAM.
+    ldh [c], a
+.wait
+    dec b
+    jr nz, .wait
+    ret z         ; Conditional `ret` is 1 M-cycle slower, which avoids
+                  ; reading from the stack on the last M-cycle of DMA.
+#+end_src
+
+* Window
++ FF4A = WY = Y pos
++ FF4B = WX = X pos - 7
+
++ for least glicty results, only write to WX, WY and LCDC during VBlank
++ if intending to hide the window for part of the screen, hide by setting o WX to a high val instead of writing to LCDC
+
+** Window rendering criteria
+PPU keeps track of "Y condition" throughout a frame
+
++ on each vblank, Ycondition is cleared (set to false)
++ an beginnig of each scanline, if the WY == LY, the Y condition becomes true
+  - and remains so for subsequent lines
+
+* LCDC
+| 7         | 6        | 5      | 4        | 3        | 2    | 1      | 0         |
+|-----------+----------+--------+----------+----------+------+--------+-----------|
+| LCD & PPU | window   | window | bg & win | bg       | obj  | obj    | bg & win  |
+| enable    | tile map | enable | tiles    | tile map | size | enable | enable/   |
+|           |          |        |          |          |      |        | priority  |
+
+* LCD status regs
+
+* Scrolling
+
+* Palettes
+** FF47 : BGP
+  |            | 7  6 | 5  4 | 3  2 | 1  0 |
+  |------------+------+------+------+------+
+  | col for... | id 3 | id 2 | id 1 | id 0 |
+
+  | val | color     |
+  |-----+-----------|
+  |   0 | white     |
+  |   1 | lightgray |
+  |   2 | dark gray |
+  |   3 | black     |
+
+** FF48-FF49 : OBP0, OBP1
+Exactly like B
+
+* Rendering
+** Terminology
+Entire frame is not drow atomically. The img is drawn by the PPU progressivelly, directly to the screen.
+
++ a frame is 154 scanlines
++ during first 144, the screen is drawn top to bottom, left to right
+
++ raster effects: mod some rendering params in the middle of rendering
+
++ dot: one 2^22 Hk (=~ 4.194 MHz) time unit
+  - = t-cycles (ppu emits roughly 1 pix per tick)
+
+** PPU modes
+During a frame, PPU cycles between four modes as follows:
+
+| mode 2   | mode 3       | mode 0      |
+| OAM scan | drwaing pixs | horiz blank |
+|----------+--------------+-------------|
+| 80 dots  | 172-289 dots | 87-204 dots |
+
++ total = 456 dots
+
++ while the PPU is accessing some video-related memory, that mem is inaccessible to the CPU
+  - writes are ignored, reads retur garbage (usually $FF)
+
+| mode | action             | duration             | accessible video |
+|      |                    |                      | memory           |
+|------+--------------------+----------------------+------------------|
+|------+--------------------+----------------------+------------------|
+|    2 | searching for objs | 80 dots              | VRAM             |
+|      | which overlap this |                      |                  |
+|      | line               |                      |                  |
+|------+--------------------+----------------------+------------------|
+|    3 | sending pixs to    | 172-289              | None             |
+|      | the LCD            |                      |                  |
+|------+--------------------+----------------------+------------------|
+|    0 | waiting until the  | 376 - mode3 duration | VRAM, OAM        |
+|      | end of scanline    |                      |                  |
+|------+--------------------+----------------------+------------------|
+|    1 | waiting until the  | 4560 dots            | VRAM, OAM        |
+|      | next frame         | (10 scanlines)       |                  |
+
+*** Mode 3 length
+During mode 3, by default the PPU outputs 1 pix to screen per dot, from left to right. -> min mode 3 length = 160 + 12 = 172 dots
+- The 12 extra dots of penalty come from two tile fetches at the beginning of Mode 3. One is the first tile in the scanline (the one that gets shifted by SCX % 8 pixels), the other is simply discarded.
+
+The GB *does not always output pixs steadily*: some features cause the rendering process to stall for a couple of dots.
+- time spend stalling lengthens mode 3
+- since scanlines are fixed duration, mode 0 gets shortened by that spent time
+
+3 things can cause mode 3 "penalties":
++ bg scrolling: at the very beginning of mode 3, rendering is paused for SCX % 8 dots while the same number of pixels are discarded from hte leftmost tile
++ window: after the last non-window pixel is emitted, a 6dot penalty is incurred while the BG fetcher is beigh set up for the window
++ objs: each obj drawn during the scanline (even partially) incurs a [[https://gbdev.io/pandocs/Rendering.html#obj-penalty-algorithm][6 to 11 dot penalty]]
+
+** Pixel FIFOs
+1 for bg pixs and 1 for obj pixs. 
++ not shared and independent of each other
++ mixed only when popping
++ each hold up to 16 pixs
++ FIFO and pixel fetcher work together to ensure at least 8 pixels are in FIFO at any given time
+  - 8 pixs are required for the pixel rendering operation to take place
++ each FIFO is manipulated only in mode 3 (pixel transfer)
+
+Each pixel in the FIFO has 4 propertie:
++ color: 0-3
++ palette: 0-7 (only for objs)
++ sprite priority: doesn't exist on DMG
++ bg priority: holds the value of the OBJ-to-BG priority bit
+
+*** Pixel fetcher
+fetches a row of 8 bg or win pixs and queues them up to be mixed with obj pixs
+
+Has 5 steps:
+1. get tile -> 2 dots
+2. get tile data lo -> 2 dots
+3. get tile data hi -> 2 dots
+4. sleep -> 2 dots
+5. push -> attempts every dot until it succeeds
+
+**** Get tile
+determines which bg/win tile to fetch pixs from.
+
++ default: tilemap used is $9800
++ LCDC.3 = 1 and curr X scan is not inside win: tilemap $9C000
++ LCDC.6 = 1 and curr X scan is inside win: $9C00
+
+Fetcher keeps track of which X and Y coord of the tile it's on:
++ if curr tile is win, X cood for the window tile is used, 
+  + otherwise: X = ((SCX / 8) + fetcher's X coord) & $1F
+    - because of this formula, fetcherX can be 0-31
++ if curr tile is win, the Y coord for the win tile is used,
+  + otherwise: Y = (currScanline + SCY) & 255
+    - because of this, fetcherY can be 0-255
+
+Fetcher's X and Y can then be used to get the tile from VRAM.
++ BUT: if the PPU's access to VRAM is blocked then the value for the tile is read as $FF
+
+**** Get tile data lo
++ Check LCDC.4 for which tilemap to use
++ after calculating tilemap, BRAM and vertical flip, the tile data is retrieved from VRAM
+  - if PPU's access to VRAM blocked, tiledata is $FF
+
+**** Get tile data hi
+Same except tile addr is +1
+
+This also pushes a row of bg/win pixs to the FIFO.
++ this is not part of the other steps -> you can do everytime every time the complete fetcher steps are performed
+
+**** Push
+Pushes a row of bg/win pixs to the FIFO
++ row = pixs form the tile to be rendered based on the X and Y coords calculated in the previous steps
+
+
++ Pixels are only pushed to the bg FIFO if it's empty
+
++ this is where the tile data retieved in the 2 tile data steps will be used
+  - if the tile is flipped horixthe pixels will be pushed LSB first
+  - otherwise MSB first
+
+**** Sleep
+Do nothing
+
+**** VRAM Access
+At various times during PPU operation read access to VRAM is blocked and the value read is $FF:
++ LCD turning off
++ At scanline 0 on CGB when not in double speed mode
++ When switching from mode 3 to mode 0
++ On CGB when searching OAM and index 37 is reached
+
+At various times during PPU operation read access to VRAM is restored:
++ At scanline 0 on DMG and CGB when in double speed mode
++ On DMG when searching OAM and index 37 is reached
++ After switching from mode 2 (oam search) to mode 3 (pixel transfer)
+
+NOTE: These conditions are checked only when entering STOP mode and the PPU’s access to VRAM is always restored upon leaving STOP mode.
+
+*** Mode 3 operation
+The pixel FIFO only operates during mode 3 (pixel transfer)
+At beginning of mode 3, both bg and OAM fifos are cleared.
+
+**** The window
+When rendering the window the background FIFO is cleared and the fetcher is reset to step 1. When WX is 0 and the SCX & 7 > 0 mode 3 is shortened by 1 dot.
+
+When the window has already started rendering there is a bug that occurs when WX is changed mid-scanline. When the value of WX changes after the window has started rendering and the new value of WX is reached again, a pixel with color value of 0 and the lowest priority is pushed onto the background FIFO.

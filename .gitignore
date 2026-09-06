@@ -6,7 +6,11 @@ tmp/
 
 build/
 bin/
-roms/
+
+roms/*.gb
+roms/*.o
 
 Notes.org
 Todos.org
+
+*.ppm

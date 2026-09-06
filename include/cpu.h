@@ -1,12 +1,13 @@
 #ifndef CPU_H_
 #define CPU_H_
 
+#include <stdbool.h>
 #include <stdint.h>
-#include "memory.h"
+#include "bus.h"
 
 #define CLOCK_SPEED 4.194304 // MHz
 
-struct cpu_registers {
+struct cpu_regs {
     union {
         uint16_t af;
         struct {
@@ -52,10 +53,11 @@ struct cpu_registers {
     uint16_t pc;
 };
 
-void cpu_init(struct cpu_registers *regs);
-void cpu_skip_boot(struct cpu_registers *regs, struct memory *mem);
-uint8_t cpu_step(struct cpu_registers *regs, struct memory *mem);
+void cpu_init(struct cpu_regs *regs);
+void cpu_skip_boot(struct cpu_regs *regs, struct bus *bus);
+uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool step);
 
-void cpu_registers_print(struct cpu_registers *regs);
+void cpu_regs_print(struct cpu_regs *regs);
+void cpu_step_print(struct cpu_regs *regs, struct bus *bus);
 
 #endif // CPU_H_

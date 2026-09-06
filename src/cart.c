@@ -93,7 +93,6 @@ void cart_free(struct cart *cart) {
         return;
     free(cart->rom);
     cart->rom = NULL;
-    free(cart);
 }
 
 void cart_print(const struct cart *cart) {

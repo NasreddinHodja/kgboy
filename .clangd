@@ -1,0 +1,5 @@
+Diagnostics:
+    Includes:
+        IgnoreHeader:
+            - "SDL.*"
+            - ".*/SDL2/.*"
