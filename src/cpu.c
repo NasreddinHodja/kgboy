@@ -1,39 +1,49 @@
 #include "cpu.h"
+#include "ppu.h"
 #include "bus.h"
 #include "ops.h"
+#include "timer.h"
+#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-void cpu_init(struct cpu_regs *regs) {
-    regs->af = 0;
-    regs->bc = 0;
-    regs->de = 0;
-    regs->hl = 0;
-    regs->sp = 0;
-    regs->pc = 0;
+void cpu_init(struct cpu *cpu, struct bus *bus, struct ppu *ppu,
+              struct timer *timer) {
+    cpu->regs.af = 0;
+    cpu->regs.bc = 0;
+    cpu->regs.de = 0;
+    cpu->regs.hl = 0;
+    cpu->regs.sp = 0;
+    cpu->regs.pc = 0;
 
-    regs->ime = 0;
-    regs->ime_pending = 0;
-    regs->halted = false;
+    cpu->regs.ime = 0;
+    cpu->regs.ime_pending = 0;
+    cpu->regs.halted = false;
+
+    cpu->cycles = 0;
+
+    cpu->bus = bus;
+    cpu->ppu = ppu;
+    cpu->timer = timer;
 }
 
-void cpu_skip_boot(struct cpu_regs *regs, struct bus *bus) {
-    regs->a = 0x01;
-    regs->f = 0xB0;
-    regs->b = 0x00;
-    regs->c = 0x13;
-    regs->d = 0x00;
-    regs->e = 0xD8;
-    regs->h = 0x01;
-    regs->l = 0x4D;
-    regs->pc = 0x0100;
-    regs->sp = 0xFFFE;
-    bus_mem_write8(bus, 0xFF40, 0x91);
-    bus_mem_write8(bus, 0xFF41, 0x85);
-    bus_mem_write8(bus, 0xFF47, 0xFC);
-    bus_mem_write8(bus, 0xFF0F, 0xE1);
-    bus_mem_write8(bus, 0xFFFF, 0x00);
+void cpu_skip_boot(struct cpu *cpu) {
+    cpu->regs.a = 0x01;
+    cpu->regs.f = 0xB0;
+    cpu->regs.b = 0x00;
+    cpu->regs.c = 0x13;
+    cpu->regs.d = 0x00;
+    cpu->regs.e = 0xD8;
+    cpu->regs.h = 0x01;
+    cpu->regs.l = 0x4D;
+    cpu->regs.pc = 0x0100;
+    cpu->regs.sp = 0xFFFE;
+    bus_mem_write8(cpu->bus, 0xFF40, 0x91);
+    bus_mem_write8(cpu->bus, 0xFF41, 0x85);
+    bus_mem_write8(cpu->bus, 0xFF47, 0xFC);
+    bus_mem_write8(cpu->bus, 0xFF0F, 0xE1);
+    bus_mem_write8(cpu->bus, 0xFFFF, 0x00);
 }
 
 static bool cond_met(uint8_t opcode, struct cpu_regs *regs) {
@@ -51,28 +61,50 @@ static bool cond_met(uint8_t opcode, struct cpu_regs *regs) {
     };
 }
 
-static uint8_t next_token8(struct cpu_regs *regs, struct bus *bus) {
-    const uint8_t ope = bus_mem_read8(bus, regs->pc);
-    regs->pc++;
+static void cpu_tick(struct cpu *cpu) {
+    timer_tick(cpu->timer, 4, cpu->bus);
+    ppu_tick(cpu->ppu, 4, cpu->bus);
+    cpu->cycles += 4;
+}
+
+uint8_t cpu_read8(struct cpu *cpu, uint16_t addr) {
+    cpu_tick(cpu);
+    return bus_mem_read8(cpu->bus, addr);
+}
+
+void cpu_write8(struct cpu *cpu, uint16_t addr, uint8_t val) {
+    cpu_tick(cpu);
+    bus_mem_write8(cpu->bus, addr, val);
+}
+
+void cpu_idle(struct cpu *cpu) { cpu_tick(cpu); }
+
+static uint8_t next_token8(struct cpu *cpu) {
+    const uint8_t ope = cpu_read8(cpu, cpu->regs.pc);
+    cpu->regs.pc++;
     return ope;
 }
 
-static uint16_t next_token16(struct cpu_regs *regs, struct bus *bus) {
-    const uint16_t ope = bus_mem_read16(bus, regs->pc);
-    regs->pc += 2;
-    return ope;
+static uint16_t next_token16(struct cpu *cpu) {
+    const uint8_t lo = next_token8(cpu);
+    const uint8_t hi = next_token8(cpu);
+    return lo | (hi << 8);
 }
 
-static uint8_t handle_interrupt(uint8_t bit, struct cpu_regs *regs,
-                                struct bus *bus) {
-    bus->io[0x0F] &= ~(1 << bit);
-    regs->ime = false;
-    push(regs->pc, regs, bus);
-    regs->pc = 0x40 + bit * 8;
+static uint8_t handle_interrupt(uint8_t bit, struct cpu *cpu) {
+    cpu_idle(cpu);
+    cpu->bus->io[0x0F] &= ~(1 << bit);
+    cpu->regs.ime = false;
+    push(cpu->regs.pc, cpu);
+    cpu->regs.pc = 0x40 + bit * 8;
+    cpu_idle(cpu);
     return 20;
 }
 
-uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
+static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
+    struct cpu_regs *regs = &cpu->regs;
+    struct bus *bus = cpu->bus;
+
     // debug print
     if (trace)
         cpu_step_print(regs, bus);
@@ -80,15 +112,16 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     // handle halted state
     if (regs->halted && (bus->ie & bus->io[0x0F] & 0x1F))
         regs->halted = false;
-    if (regs->halted)
+    if (regs->halted) {
+        cpu_idle(cpu);
         return 4;
+    }
 
     // handle interrupts
-    // 0:blank 1
     if (regs->ime)
         for (size_t i = 0; i < 5; i++)
             if ((bus->ie & (1 << i)) && (bus->io[0x0F] & (1 << i)))
-                return handle_interrupt(i, regs, bus);
+                return handle_interrupt(i, cpu);
 
     // ime promotion
     if (regs->ime_pending) {
@@ -97,7 +130,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     }
 
     // 1. fetch: read the byte at PC, increment PC
-    uint8_t opcode = next_token8(regs, bus);
+    uint8_t opcode = next_token8(cpu);
 
     // 2. decode: opcode -> what to do
     switch (opcode) {
@@ -111,17 +144,17 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD BC,u16
     case 0x01:
-        ld_r16_n16(&regs->bc, next_token16(regs, bus));
+        ld_r16_n16(&regs->bc, next_token16(cpu));
         return 12;
 
     // LD (BC),A
     case 0x02:
-        ld_m_n8(regs->bc, regs->a, bus);
+        ld_m_n8(regs->bc, regs->a, cpu);
         return 8;
 
     // INC BC
     case 0x03:
-        inc_r16(&regs->bc);
+        inc_r16(&regs->bc, cpu);
         return 8;
 
     // INC B
@@ -136,7 +169,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD B,u8
     case 0x06:
-        ld_r8_n8(&regs->b, next_token8(regs, bus));
+        ld_r8_n8(&regs->b, next_token8(cpu));
         return 8;
 
     // RLCA
@@ -146,22 +179,22 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD (a16),SP
     case 0x08:
-        ld_m_n16(next_token16(regs, bus), regs->sp, bus);
+        ld_m_n16(next_token16(cpu), regs->sp, cpu);
         return 20;
 
     // ADD HL,BC
     case 0x09:
-        add_r16_n16(&regs->hl, regs->bc, regs);
+        add_r16_n16(&regs->hl, regs->bc, cpu);
         return 8;
 
     // LD A,(BC)
     case 0x0A:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, regs->bc));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, regs->bc));
         return 8;
 
     // DEC BC
     case 0x0B:
-        dec_r16(&regs->bc);
+        dec_r16(&regs->bc, cpu);
         return 8;
 
     // INC C
@@ -176,7 +209,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD C,u8
     case 0x0E:
-        ld_r8_n8(&regs->c, next_token8(regs, bus));
+        ld_r8_n8(&regs->c, next_token8(cpu));
         return 8;
 
     // RRCA
@@ -193,17 +226,17 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD DE,u16
     case 0x11:
-        ld_r16_n16(&regs->de, next_token16(regs, bus));
+        ld_r16_n16(&regs->de, next_token16(cpu));
         return 12;
 
     // LD (DE),A
     case 0x12:
-        ld_m_n8(regs->de, regs->a, bus);
+        ld_m_n8(regs->de, regs->a, cpu);
         return 8;
 
     // INC DE
     case 0x13:
-        inc_r16(&regs->de);
+        inc_r16(&regs->de, cpu);
         return 8;
 
     // INC D
@@ -218,7 +251,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD d,u8
     case 0x16:
-        ld_r8_n8(&regs->d, next_token8(regs, bus));
+        ld_r8_n8(&regs->d, next_token8(cpu));
         return 8;
 
     // LD,u8
@@ -228,22 +261,22 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // JR i8
     case 0x18:
-        jr((int8_t)next_token8(regs, bus), regs);
+        jr((int8_t)next_token8(cpu), cpu);
         return 12;
 
     // ADD HL,DE
     case 0x19:
-        add_r16_n16(&regs->hl, regs->de, regs);
+        add_r16_n16(&regs->hl, regs->de, cpu);
         return 8;
 
     // LD A,(DE)
     case 0x1A:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, regs->de));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, regs->de));
         return 8;
 
     // DEC DE
     case 0x1B:
-        dec_r16(&regs->de);
+        dec_r16(&regs->de, cpu);
         return 8;
 
     // INC E
@@ -258,7 +291,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD E,u8
     case 0x1E:
-        ld_r8_n8(&regs->e, next_token8(regs, bus));
+        ld_r8_n8(&regs->e, next_token8(cpu));
         return 8;
 
     // RRA
@@ -269,18 +302,18 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     // 0x2- ====================================================================
     // LD HL,u16
     case 0x21:
-        ld_r16_n16(&regs->hl, next_token16(regs, bus));
+        ld_r16_n16(&regs->hl, next_token16(cpu));
         return 12;
 
     // LD (HL+),A
     case 0x22:
-        ld_m_n8(regs->hl, regs->a, bus);
+        ld_m_n8(regs->hl, regs->a, cpu);
         regs->hl++;
         return 8;
 
     // INC HL
     case 0x23:
-        inc_r16(&regs->hl);
+        inc_r16(&regs->hl, cpu);
         return 8;
 
     // INC H
@@ -295,7 +328,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD H,u8
     case 0x26:
-        ld_r8_n8(&regs->h, next_token8(regs, bus));
+        ld_r8_n8(&regs->h, next_token8(cpu));
         return 8;
 
     // DAA
@@ -305,18 +338,18 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // ADD HL,HL
     case 0x29:
-        add_r16_n16(&regs->hl, regs->hl, regs);
+        add_r16_n16(&regs->hl, regs->hl, cpu);
         return 8;
 
     // LD A,(HL+)
     case 0x2A:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, regs->hl));
         regs->hl++;
         return 8;
 
     // DEC HL
     case 0x2B:
-        dec_r16(&regs->hl);
+        dec_r16(&regs->hl, cpu);
         return 8;
 
     // INC L
@@ -331,7 +364,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD L,u8
     case 0x2E:
-        ld_r8_n8(&regs->l, next_token8(regs, bus));
+        ld_r8_n8(&regs->l, next_token8(cpu));
         return 8;
 
     // CPL
@@ -342,33 +375,33 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     // 0x3- ====================================================================
     // LD SP,u16
     case 0x31:
-        ld_r16_n16(&regs->sp, next_token16(regs, bus));
+        ld_r16_n16(&regs->sp, next_token16(cpu));
         return 12;
 
     // LD (HL-),A
     case 0x32:
-        ld_m_n8(regs->hl, regs->a, bus);
+        ld_m_n8(regs->hl, regs->a, cpu);
         regs->hl--;
         return 8;
 
     // INC SP
     case 0x33:
-        inc_r16(&regs->sp);
+        inc_r16(&regs->sp, cpu);
         return 8;
 
     // INC (HL)
     case 0x34:
-        inc_m(regs->hl, regs, bus);
+        inc_m(regs->hl, cpu);
         return 12;
 
     // DEC (HL)
     case 0x35:
-        dec_m(regs->hl, regs, bus);
+        dec_m(regs->hl, cpu);
         return 12;
 
     // LD (HL),u8
     case 0x36:
-        ld_m_n8(regs->hl, next_token8(regs, bus), bus);
+        ld_m_n8(regs->hl, next_token8(cpu), cpu);
         return 12;
 
     // SCF
@@ -378,18 +411,18 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // ADD HL,SP
     case 0x39:
-        add_r16_n16(&regs->hl, regs->sp, regs);
+        add_r16_n16(&regs->hl, regs->sp, cpu);
         return 8;
 
     // LD A,(HL-)
     case 0x3A:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, regs->hl));
         regs->hl--;
         return 8;
 
     // DEC SP
     case 0x3B:
-        dec_r16(&regs->sp);
+        dec_r16(&regs->sp, cpu);
         return 8;
 
     // INC A
@@ -404,7 +437,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD A,u8
     case 0x3E:
-        ld_r8_n8(&regs->a, next_token8(regs, bus));
+        ld_r8_n8(&regs->a, next_token8(cpu));
         return 8;
 
     // CFF
@@ -445,7 +478,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD B,(HL)
     case 0x46:
-        ld_r8_n8(&regs->b, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->b, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD B,A
@@ -485,7 +518,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD C,(HL)
     case 0x4E:
-        ld_r8_n8(&regs->c, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->c, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD C,A
@@ -526,7 +559,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD D,(HL)
     case 0x56:
-        ld_r8_n8(&regs->d, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->d, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD D,A
@@ -566,7 +599,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD E,(HL)
     case 0x5E:
-        ld_r8_n8(&regs->e, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->e, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD E,A
@@ -607,7 +640,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD H,(HL)
     case 0x66:
-        ld_r8_n8(&regs->h, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->h, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD H,A
@@ -647,7 +680,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD L,(HL)
     case 0x6E:
-        ld_r8_n8(&regs->l, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->l, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD L,A
@@ -658,32 +691,32 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     // 0x7- ====================================================================
     // LD (HL),B
     case 0x70:
-        ld_m_n8(regs->hl, regs->b, bus);
+        ld_m_n8(regs->hl, regs->b, cpu);
         return 8;
 
     // LD (HL),C
     case 0x71:
-        ld_m_n8(regs->hl, regs->c, bus);
+        ld_m_n8(regs->hl, regs->c, cpu);
         return 8;
 
     // LD (HL),D
     case 0x72:
-        ld_m_n8(regs->hl, regs->d, bus);
+        ld_m_n8(regs->hl, regs->d, cpu);
         return 8;
 
     // LD (HL),E
     case 0x73:
-        ld_m_n8(regs->hl, regs->e, bus);
+        ld_m_n8(regs->hl, regs->e, cpu);
         return 8;
 
     // LD (HL),H
     case 0x74:
-        ld_m_n8(regs->hl, regs->h, bus);
+        ld_m_n8(regs->hl, regs->h, cpu);
         return 8;
 
     // LD (HL),L
     case 0x75:
-        ld_m_n8(regs->hl, regs->l, bus);
+        ld_m_n8(regs->hl, regs->l, cpu);
         return 8;
 
     // HALT
@@ -693,7 +726,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD (HL),A
     case 0x77:
-        ld_m_n8(regs->hl, regs->a, bus);
+        ld_m_n8(regs->hl, regs->a, cpu);
         return 8;
 
     // LD A,B
@@ -728,7 +761,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // LD A,(HL)
     case 0x7E:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, regs->hl));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, regs->hl));
         return 8;
 
     // LD A,A
@@ -769,7 +802,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // ADD A,(HL)
     case 0x86:
-        add_n8(bus_mem_read8(bus, regs->hl), regs);
+        add_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // ADD A,A
@@ -809,7 +842,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // ADC A,(HL)
     case 0x8E:
-        adc_n8(bus_mem_read8(bus, regs->hl), regs);
+        adc_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // ADC A,A
@@ -850,7 +883,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // SUB A,(HL)
     case 0x96:
-        sub_n8(bus_mem_read8(bus, regs->hl), regs);
+        sub_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // SUB A,A
@@ -890,7 +923,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // SBC A,(HL)
     case 0x9E:
-        sbc_n8(bus_mem_read8(bus, regs->hl), regs);
+        sbc_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // SBC A,A
@@ -931,7 +964,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // AND A,(HL)
     case 0xA6:
-        and_n8(bus_mem_read8(bus, regs->hl), regs);
+        and_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // AND A,A
@@ -971,7 +1004,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // XOR A,(HL)
     case 0xAE:
-        xor_n8(bus_mem_read8(bus, regs->hl), regs);
+        xor_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // XOR A,A
@@ -1012,7 +1045,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // OR A,(HL)
     case 0xB6:
-        or_n8(bus_mem_read8(bus, regs->hl), regs);
+        or_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // OR A,A
@@ -1052,7 +1085,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // CP A,(HL)
     case 0xBE:
-        cp_n8(bus_mem_read8(bus, regs->hl), regs);
+        cp_n8(cpu_read8(cpu, regs->hl), regs);
         return 8;
 
     // CP A,A
@@ -1063,130 +1096,130 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     // 0xC- ====================================================================
     // POP BC
     case 0xC1:
-        pop(&regs->bc, regs, bus);
+        pop(&regs->bc, cpu);
         return 12;
 
     // JP n16
     case 0xC3:
-        ld_r16_n16(&regs->pc, next_token16(regs, bus));
+        jp(next_token16(cpu), cpu);
         return 16;
 
     // PUSH BC
     case 0xC5:
-        push(regs->bc, regs, bus);
+        push(regs->bc, cpu);
         return 16;
 
     // ADD A,u8
     case 0xC6:
-        add_n8(next_token8(regs, bus), regs);
+        add_n8(next_token8(cpu), regs);
         return 8;
 
     // RET
     case 0xC9:
-        ret(regs, bus);
+        ret(cpu);
         return 16;
 
     // PREFIX CB
     case 0xCB:
-        return cpu_step_cb(next_token8(regs, bus), regs, bus);
+        return cpu_step_cb(next_token8(cpu), cpu);
 
     // ADC A,u8
     case 0xCE:
-        adc_n8(next_token8(regs, bus), regs);
+        adc_n8(next_token8(cpu), regs);
         return 8;
 
     // CALL u16
     case 0xCD:
-        call(next_token16(regs, bus), regs, bus);
+        call(next_token16(cpu), cpu);
         return 24;
 
     // 0xD- ====================================================================
     // POP DE
     case 0xD1:
-        pop(&regs->de, regs, bus);
+        pop(&regs->de, cpu);
         return 12;
 
     // PUSH DE
     case 0xD5:
-        push(regs->de, regs, bus);
+        push(regs->de, cpu);
         return 16;
 
     // SUB A,u8
     case 0xD6:
-        sub_n8(next_token8(regs, bus), regs);
+        sub_n8(next_token8(cpu), regs);
         return 8;
 
     // RETI
     case 0xD9:
-        reti(regs, bus);
+        reti(cpu);
         return 16;
 
     // SBC A,u8
     case 0xDE:
-        sbc_n8(next_token8(regs, bus), regs);
+        sbc_n8(next_token8(cpu), regs);
         return 8;
 
     // 0xE- ====================================================================
     // LDH (n8),A
     case 0xE0:
-        ld_m_n8(0xFF00 + next_token8(regs, bus), regs->a, bus);
+        ld_m_n8(0xFF00 + next_token8(cpu), regs->a, cpu);
         return 12;
 
     // POP HL
     case 0xE1:
-        pop(&regs->hl, regs, bus);
+        pop(&regs->hl, cpu);
         return 12;
 
     // LDH (c),A
     case 0xE2:
-        ld_m_n8(0xFF00 + regs->c, regs->a, bus);
+        ld_m_n8(0xFF00 + regs->c, regs->a, cpu);
         return 8;
 
     // PUSH HL
     case 0xE5:
-        push(regs->hl, regs, bus);
+        push(regs->hl, cpu);
         return 16;
 
     // AND A,u8
     case 0xE6:
-        and_n8(next_token8(regs, bus), regs);
+        and_n8(next_token8(cpu), regs);
         return 8;
 
     // ADD SP,u8
     case 0xE8:
-        add_sp((int8_t)next_token8(regs, bus), regs);
+        add_sp((int8_t)next_token8(cpu), cpu);
         return 16;
 
     // JP HL
     case 0xE9:
-        jp(regs->hl, regs);
+        regs->pc = regs->hl; // no cycles
         return 4;
 
     // LD (u16),A
     case 0xEA:
-        ld_m_n8(next_token16(regs, bus), regs->a, bus);
+        ld_m_n8(next_token16(cpu), regs->a, cpu);
         return 16;
 
     // XOR A,u8
     case 0xEE:
-        xor_n8(next_token8(regs, bus), regs);
+        xor_n8(next_token8(cpu), regs);
         return 8;
 
     // 0xF- ====================================================================
     // LDH a,(n8)
     case 0xF0:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, 0xFF00 + next_token8(regs, bus)));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, 0xFF00 + next_token8(cpu)));
         return 12;
 
     // POP AF
     case 0xF1:
-        pop(&regs->af, regs, bus);
+        pop(&regs->af, cpu);
         regs->f &= 0xF0;
         return 12;
 
     // LDH A,(c)
     case 0xF2:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, 0xFF00 + regs->c));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, 0xFF00 + regs->c));
         return 8;
 
     // DI
@@ -1196,27 +1229,28 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // PUSH AF
     case 0xF5:
-        push(regs->af, regs, bus);
+        push(regs->af, cpu);
         return 16;
 
     // OR A,u8
     case 0xF6:
-        or_n8(next_token8(regs, bus), regs);
+        or_n8(next_token8(cpu), regs);
         return 8;
 
     // LD HL,SP+i8
     case 0xF8:
-        ld_hl_spe((int8_t)next_token8(regs, bus), regs);
+        ld_hl_spe((int8_t)next_token8(cpu), cpu);
         return 12;
 
     // LD SP,HL
     case 0xF9:
         ld_r16_n16(&regs->sp, regs->hl);
+        cpu_idle(cpu);
         return 8;
 
     // LD A,(u16)
     case 0xFA:
-        ld_r8_n8(&regs->a, bus_mem_read8(bus, next_token16(regs, bus)));
+        ld_r8_n8(&regs->a, cpu_read8(cpu, next_token16(cpu)));
         return 16;
 
     // EI
@@ -1226,7 +1260,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
 
     // CP A,n8
     case 0xFE:
-        cp_n8(next_token8(regs, bus), regs);
+        cp_n8(next_token8(cpu), regs);
         return 8;
 
     // -------------------------------------------------------------------------
@@ -1236,9 +1270,9 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     case 0x28:
     case 0x30:
     case 0x38: {
-        const uint8_t operand = next_token8(regs, bus);
+        const uint8_t operand = next_token8(cpu);
         if (cond_met(opcode, regs)) {
-            jr((int8_t)operand, regs);
+            jr((int8_t)operand, cpu);
             return 12;
         }
         return 8;
@@ -1248,9 +1282,9 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     case 0xCA:
     case 0xD2:
     case 0xDA: {
-        const uint16_t operand = next_token16(regs, bus);
+        const uint16_t operand = next_token16(cpu);
         if (cond_met(opcode, regs)) {
-            jp(operand, regs);
+            jp(operand, cpu);
             return 16;
         }
         return 12;
@@ -1261,9 +1295,9 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     case 0xCC:
     case 0xD4:
     case 0xDC: {
-        const uint16_t operand = next_token16(regs, bus);
+        const uint16_t operand = next_token16(cpu);
         if (cond_met(opcode, regs)) {
-            call(operand, regs, bus);
+            call(operand, cpu);
             return 24;
         }
         return 12;
@@ -1272,8 +1306,9 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     case 0xC8:
     case 0xD0:
     case 0xD8:
+        cpu_idle(cpu);
         if (cond_met(opcode, regs)) {
-            ret(regs, bus);
+            ret(cpu);
             return 20;
         }
         return 8;
@@ -1285,7 +1320,7 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
     case 0xEF:
     case 0xF7:
     case 0xFF:
-        call(opcode & 0x38, regs, bus);
+        call(opcode & 0x38, cpu);
         return 16;
 
     default:
@@ -1293,6 +1328,15 @@ uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool trace) {
         fprintf(stderr, "error pc    : %04X\n", (unsigned int)(regs->pc - 1));
         exit(1);
     }
+    
+}
+
+void cpu_step(struct cpu *cpu, bool trace) {
+    const uint64_t before = cpu->cycles;
+    const uint8_t declared = cpu_execute(cpu, trace);
+    assert(cpu->cycles - before == declared);
+    while (cpu->cycles - before < declared)
+        cpu_tick(cpu);
 }
 
 void cpu_regs_print(struct cpu_regs *regs) {

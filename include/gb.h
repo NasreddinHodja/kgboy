@@ -9,14 +9,13 @@
 #include <stdbool.h>
 
 struct gb {
-    struct cpu_regs regs;
+    struct cpu cpu;
     struct bus bus;
     struct ppu ppu;
     struct timer timer;
     struct joypad jp;
     struct cart cart;
 
-    uint64_t cycles; // t-cycles
     bool trace;
 };
 

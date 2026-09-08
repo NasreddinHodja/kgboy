@@ -50,14 +50,14 @@ int main(int argc, char *argv[]) {
             display_present(&disp, gb.ppu.fb, gb.ppu.bgp);
             running = display_poll(&gb.jp);
         }
-        if (trace) fprintf(stdout, "Ran %lu t-cycles.\n\n", gb.cycles);
+        if (trace) fprintf(stdout, "Ran %lu t-cycles.\n\n", gb.cpu.cycles);
     }
 
     // step
     fprintf(stdout, "\n");
 
     // print state
-    cpu_regs_print(&gb.regs);
+    cpu_regs_print(&gb.cpu.regs);
     fprintf(stdout, "\n");
 
     fprintf(stdout, " - $8000:\n");

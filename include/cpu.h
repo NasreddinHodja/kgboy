@@ -1,9 +1,11 @@
 #ifndef CPU_H_
 #define CPU_H_
 
+#include "bus.h"
+#include "timer.h"
+#include "ppu.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include "bus.h"
 
 #define CLOCK_SPEED 4.194304 // MHz
 
@@ -57,9 +59,25 @@ struct cpu_regs {
     bool halted;
 };
 
-void cpu_init(struct cpu_regs *regs);
-void cpu_skip_boot(struct cpu_regs *regs, struct bus *bus);
-uint8_t cpu_step(struct cpu_regs *regs, struct bus *bus, bool step);
+struct cpu {
+    struct cpu_regs regs;
+    struct bus *bus;
+    struct ppu *ppu;
+    struct timer *timer;
+    uint64_t cycles;
+};
+
+// timed
+uint8_t cpu_read8(struct cpu *cpu, uint16_t addr);
+void cpu_write8(struct cpu *cpu, uint16_t addr, uint8_t val);
+void cpu_idle(struct cpu *cpu);
+
+void cpu_step(struct cpu *cpu, bool trace);
+
+// untimed
+void cpu_init(struct cpu *cpu, struct bus *bus, struct ppu *ppu,
+              struct timer *timer);
+void cpu_skip_boot(struct cpu *cpu);
 
 void cpu_regs_print(struct cpu_regs *regs);
 void cpu_step_print(struct cpu_regs *regs, struct bus *bus);
