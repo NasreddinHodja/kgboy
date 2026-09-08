@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
         if (gb.ppu.frame_ready) {
             gb.ppu.frame_ready = false;
             display_present(&disp, gb.ppu.fb, gb.ppu.bgp);
-            running = display_poll();
+            running = display_poll(&gb.jp);
         }
         if (trace) fprintf(stdout, "Ran %lu t-cycles.\n\n", gb.cycles);
     }
@@ -60,11 +60,11 @@ int main(int argc, char *argv[]) {
     cpu_regs_print(&gb.regs);
     fprintf(stdout, "\n");
 
-    fprintf(stdout, "Tile Data block 0 - $8000:\n");
-    bus_mem_print(&gb.bus, 0x8000, 64);
+    fprintf(stdout, " - $8000:\n");
+    bus_mem_print(&gb.bus, 0x0200, 64);
     fprintf(stdout, "\n");
     fprintf(stdout, "Tile Map 0 - $9800:\n");
-    bus_mem_print(&gb.bus, 0x9800, 128);
+    bus_mem_print(&gb.bus, 0xFE00, 64);
     fprintf(stdout, "\n");
 
     return 0;

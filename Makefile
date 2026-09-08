@@ -10,15 +10,17 @@ SRC_DIR = src
 BUILD_DIR = build
 BIN_DIR = bin
 
-SRC = $(wildcard $(SRC_DIR)/*.c)
+SRC = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/*/*.c)
 OBJ = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC))
 DEP = $(OBJ:.o=.d)
 TARGET = $(BIN_DIR)/gbemu
 
-$(TARGET): $(OBJ) | $(BIN_DIR)
+$(TARGET): $(OBJ)
+	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ) $(LDLIBS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 -include $(DEP)

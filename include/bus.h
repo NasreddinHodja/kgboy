@@ -1,7 +1,7 @@
 #ifndef BUS_H_
 #define BUS_H_
 
-#include "cart.h"
+#include "cart/cart.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -17,6 +17,7 @@ struct bus {
     struct cart *cart;
     struct ppu *ppu;
     struct timer *timer;
+    struct joypad *jp;
 
     uint8_t vram[0x2000];
     uint8_t wram[0x2000];
@@ -29,7 +30,7 @@ struct bus {
 };
 
 void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu,
-                  struct timer *timer);
+                  struct timer *timer, struct joypad *jp);
 uint8_t bus_mem_read8(struct bus *bus, uint16_t addr);
 void bus_mem_write8(struct bus *bus, uint16_t addr, uint8_t val);
 uint16_t bus_mem_read16(struct bus *bus, uint16_t addr);

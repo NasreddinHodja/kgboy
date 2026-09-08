@@ -1,6 +1,4 @@
 #include "gb.h"
-#include "ppu.h"
-#include "timer.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -15,9 +13,12 @@ void gb_init(struct gb *gb, const char *rom_path, const bool trace) {
     }
     cart_print(&gb->cart);
 
-    // timer
     timer_init(&gb->timer);
-    bus_mem_init(&gb->bus, &gb->cart, &gb->ppu, &gb->timer);
+
+    joypad_init(&gb->jp);
+
+    // bus
+    bus_mem_init(&gb->bus, &gb->cart, &gb->ppu, &gb->timer, &gb->jp);
     cpu_init(&gb->regs);
     ppu_init(&gb->ppu);
     cpu_skip_boot(&gb->regs, &gb->bus);

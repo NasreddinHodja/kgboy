@@ -1,16 +1,19 @@
 #include "bus.h"
-#include "timer.h"
+#include "joypad.h"
 #include "ppu.h"
+#include "timer.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu,
-                  struct timer *timer) {
+                  struct timer *timer, struct joypad *jp) {
     memset(bus, 0, sizeof(*bus));
     bus->cart = cart;
     bus->ppu = ppu;
     bus->timer = timer;
+    bus->jp = jp;
 }
 
 static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
@@ -20,6 +23,9 @@ static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
     // OAM
     if (addr < 0xFEA0) {
         return bus->oam[addr - 0xFE00];
+        // joypad
+    } else if (addr == 0xFF00) {
+        return joypad_read(bus->jp);
         // NOT USABLE
     } else if (addr < 0xFF00) {
         return 0xFF;
@@ -54,13 +60,13 @@ uint8_t bus_mem_read8(struct bus *bus, uint16_t addr) {
     case 0x5:
     case 0x6:
     case 0x7:
-        return bus->cart->rom[addr];
+        return bus->cart->read_rom(bus->cart, addr);
     // VRAM
     case 0x8:
     case 0x9:
         return bus->vram[addr & 0x1FFF];
-    // TODO: E(xternal)RAM
     case 0xA:
+        return bus->cart->read_ram(bus->cart, addr);
     case 0xB:
         return 0xFF;
     // WRAM
@@ -78,6 +84,12 @@ uint8_t bus_mem_read8(struct bus *bus, uint16_t addr) {
 
 uint16_t bus_mem_read16(struct bus *bus, uint16_t addr) {
     return bus_mem_read8(bus, addr) | (bus_mem_read8(bus, addr + 1) << 8);
+}
+
+static void bus_oam_dma_transfer(struct bus *bus, uint8_t val) {
+    const uint16_t src = val << 8;
+    for (size_t i = 0; i < 0xA0; i++)
+        bus->oam[i] = bus_mem_read8(bus, src + i);
 }
 
 static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
@@ -99,7 +111,11 @@ static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
         timer_write_r(bus->timer, addr, val);
         // IO registers
     } else if (addr >= 0xFF40 && addr <= 0xFF4B) {
-        ppu_write_r(bus->ppu, addr, val);
+        if (addr == 0xFF46)
+            bus_oam_dma_transfer(bus, val);
+        else
+            ppu_write_r(bus->ppu, addr, val);
+        // OAM DAM transfer
     } else if (addr < 0xFF80) {
         bus->io[addr - 0xFF00] = val;
         // HRAM
@@ -119,18 +135,21 @@ void bus_mem_write8(struct bus *bus, uint16_t addr, uint8_t val) {
     case 0x1:
     case 0x2:
     case 0x3:
+    // ROM bank NN
     case 0x4:
     case 0x5:
     case 0x6:
     case 0x7:
+        bus->cart->write_rom(bus->cart, addr, val);
         break;
     // VRAM
     case 0x8:
     case 0x9:
         bus->vram[addr & 0x1FFF] = val;
         break;
-    // TODO: E(xternal)RAM
     case 0xA:
+        bus->cart->write_ram(bus->cart, addr, val);
+        break;
     case 0xB:
         break;
     // WRAM

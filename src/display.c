@@ -98,12 +98,43 @@ void display_present(struct display *display,
     SDL_RenderCopy(display->ren, display->tex, NULL, NULL);
     SDL_RenderPresent(display->ren);
 }
+static const struct {
+    SDL_Keycode key;
+    bool        is_dpad;
+    uint8_t     bit;
+} keymap[] = {
+    { SDLK_d,  true,  0 },
+    { SDLK_l,   true,  1 },
+    { SDLK_c,     true,  2 },
+    { SDLK_b,   true,  3 },
+    { SDLK_y,      false, 0 },   // A
+    { SDLK_o,      false, 1 },   // B
+    { SDLK_u, false, 2 },   // Select
+    { SDLK_j, false, 3 },   // Start
+};
 
-bool display_poll() {
+bool display_poll(struct joypad *jp) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT)
             return false;
+
+        if (e.type != SDL_KEYDOWN && e.type != SDL_KEYUP)
+            continue;
+
+        const bool pressed = (e.type == SDL_KEYDOWN);
+
+        for (size_t i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++) {
+            if (e.key.keysym.sym != keymap[i].key)
+                continue;
+
+            uint8_t *reg = keymap[i].is_dpad ? &jp->dpad : &jp->buttons;
+            const uint8_t mask = 1 << keymap[i].bit;
+
+            if (pressed) *reg &= ~mask;   // 0 = pressed
+            else         *reg |=  mask;
+            break;
+        }
     }
     return true;
 }

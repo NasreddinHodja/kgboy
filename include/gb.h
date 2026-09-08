@@ -5,6 +5,7 @@
 #include "bus.h"
 #include "ppu.h"
 #include "timer.h"
+#include "joypad.h"
 #include <stdbool.h>
 
 struct gb {
@@ -12,6 +13,7 @@ struct gb {
     struct bus bus;
     struct ppu ppu;
     struct timer timer;
+    struct joypad jp;
     struct cart cart;
 
     uint64_t cycles; // t-cycles

@@ -1,5 +1,71 @@
 [
   {
+    "file": "src/alu.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c17",
+      "-g",
+      "-Iinclude",
+      "-MMD",
+      "-MP",
+      "-I/usr/include/SDL2",
+      "-D_GNU_SOURCE=1",
+      "-D_REENTRANT",
+      "-c",
+      "src/alu.c",
+      "-o",
+      "build/alu.o"
+    ],
+    "directory": "/home/nasreddin/Prog/kgboy",
+    "output": "build/alu.o"
+  },
+  {
+    "file": "src/bus.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c17",
+      "-g",
+      "-Iinclude",
+      "-MMD",
+      "-MP",
+      "-I/usr/include/SDL2",
+      "-D_GNU_SOURCE=1",
+      "-D_REENTRANT",
+      "-c",
+      "src/bus.c",
+      "-o",
+      "build/bus.o"
+    ],
+    "directory": "/home/nasreddin/Prog/kgboy",
+    "output": "build/bus.o"
+  },
+  {
+    "file": "src/cpu.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c17",
+      "-g",
+      "-Iinclude",
+      "-MMD",
+      "-MP",
+      "-I/usr/include/SDL2",
+      "-D_GNU_SOURCE=1",
+      "-D_REENTRANT",
+      "-c",
+      "src/cpu.c",
+      "-o",
+      "build/cpu.o"
+    ],
+    "directory": "/home/nasreddin/Prog/kgboy",
+    "output": "build/cpu.o"
+  },
+  {
     "file": "src/display.c",
     "arguments": [
       "/usr/bin/gcc",
@@ -20,5 +86,27 @@
     ],
     "directory": "/home/nasreddin/Prog/kgboy",
     "output": "build/display.o"
+  },
+  {
+    "file": "src/gb.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c17",
+      "-g",
+      "-Iinclude",
+      "-MMD",
+      "-MP",
+      "-I/usr/include/SDL2",
+      "-D_GNU_SOURCE=1",
+      "-D_REENTRANT",
+      "-c",
+      "src/gb.c",
+      "-o",
+      "build/gb.o"
+    ],
+    "directory": "/home/nasreddin/Prog/kgboy",
+    "output": "build/gb.o"
   }
 ]
