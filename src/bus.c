@@ -102,6 +102,9 @@ static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
         // NOT USABLE
     } else if (addr < 0xFF00) {
         return;
+    } else if (addr == 0xFF00) { // joypad
+        joypad_write(bus->jp, val);
+        return;
     } else if (addr == 0xFF02 && (val & (1 << 7))) { // serial
         putchar(bus->io[0x01]);
         fflush(stdout);

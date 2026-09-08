@@ -103,12 +103,12 @@ static const struct {
     bool        is_dpad;
     uint8_t     bit;
 } keymap[] = {
-    { SDLK_d,  true,  0 },
-    { SDLK_l,   true,  1 },
-    { SDLK_c,     true,  2 },
-    { SDLK_b,   true,  3 },
-    { SDLK_y,      false, 0 },   // A
-    { SDLK_o,      false, 1 },   // B
+    { SDLK_d, true,  0 },   // right
+    { SDLK_l, true,  1 },   // left
+    { SDLK_c, true,  2 },   // up
+    { SDLK_b, true,  3 },   // down
+    { SDLK_y, false, 0 },   // A
+    { SDLK_o, false, 1 },   // B
     { SDLK_u, false, 2 },   // Select
     { SDLK_j, false, 3 },   // Start
 };
@@ -132,7 +132,7 @@ bool display_poll(struct joypad *jp) {
             const uint8_t mask = 1 << keymap[i].bit;
 
             if (pressed) *reg &= ~mask;   // 0 = pressed
-            else         *reg |=  mask;
+            else *reg |=  mask;
             break;
         }
     }
