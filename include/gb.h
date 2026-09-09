@@ -19,7 +19,8 @@ struct gb {
     bool trace;
 };
 
-void gb_init(struct gb *gb, const char *rom_path, const bool trace);
+bool gb_init(struct gb *gb, const char *rom_path, const bool trace);
+void gb_destroy(struct gb *gb);
 void gb_step(struct gb *gb);
 
 #endif // GB_H_

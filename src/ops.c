@@ -2,9 +2,9 @@
 #include "alu.h"
 #include "cpu.h"
 
-void nop() { return; }
+void nop(void) { return; }
 
-void stop() {
+void stop(void) {
     // TODO:
     // https://gbdev.io/pandocs/Reducing_Power_Consumption.html#using-the-stop-instruction
     // lol
@@ -49,7 +49,6 @@ void ld_hl_spe(int8_t off, struct cpu *cpu) {
 }
 
 // increment/decrement
-void inc_r8(uint8_t *dst, struct cpu_regs *regs) { alu_inc_r8(dst, regs); }
 void inc_r16(uint16_t *dst, struct cpu *cpu) {
     alu_inc_r16(dst);
     cpu_idle(cpu);
@@ -60,7 +59,6 @@ void inc_m(uint16_t addr, struct cpu *cpu) {
     cpu_write8(cpu, addr, t);
 }
 
-void dec_r8(uint8_t *dst, struct cpu_regs *regs) { alu_dec_r8(dst, regs); }
 void dec_r16(uint16_t *dst, struct cpu *cpu) {
     alu_dec_r16(dst);
     cpu_idle(cpu);
@@ -97,10 +95,7 @@ void add_r16_n16(uint16_t *dst, uint16_t val, struct cpu *cpu) {
     alu_add_r16(dst, val, &cpu->regs);
     cpu_idle(cpu);
 }
-void add_n8(uint8_t val, struct cpu_regs *regs) { alu_add_r8(val, 0, regs); }
-void adc_n8(uint8_t val, struct cpu_regs *regs) {
-    alu_add_r8(val, regs->f_bits.c, regs);
-}
+
 void add_sp(int8_t val, struct cpu *cpu) {
     cpu->regs.f_bits.h = ((cpu->regs.sp & 0x0F) + (val & 0x0F)) > 0x0F;
     cpu->regs.f_bits.c = ((cpu->regs.sp & 0xFF) + (val & 0xFF)) > 0xFF;
@@ -111,34 +106,24 @@ void add_sp(int8_t val, struct cpu *cpu) {
     cpu_idle(cpu);
 }
 
-// sub
-void sub_n8(uint8_t val, struct cpu_regs *regs) { alu_sub_r8(val, 0, regs); }
-void sbc_n8(uint8_t val, struct cpu_regs *regs) {
-    alu_sub_r8(val, regs->f_bits.c, regs);
-}
-
-// logical
-void or_n8(uint8_t val, struct cpu_regs *regs) { alu_or(val, regs); }
-void and_n8(uint8_t val, struct cpu_regs *regs) { alu_and(val, regs); }
-void xor_n8(uint8_t val, struct cpu_regs *regs) { alu_xor(val, regs); }
-void cp_n8(uint8_t val, struct cpu_regs *regs) { alu_cp(val, regs); }
-void cpl(struct cpu_regs *regs) { alu_cpl(regs); }
-
 // call/ret/push/pop
 void push(uint16_t val, struct cpu *cpu) {
     cpu_idle(cpu);
     cpu_write8(cpu, --cpu->regs.sp, val >> 8);
     cpu_write8(cpu, --cpu->regs.sp, val);
 }
+
 void pop(uint16_t *dst, struct cpu *cpu) {
     const uint8_t lo = cpu_read8(cpu, cpu->regs.sp++);
     const uint8_t hi = cpu_read8(cpu, cpu->regs.sp++);
     *dst = lo | hi << 8;
 }
+
 void call(uint16_t addr, struct cpu *cpu) {
     push(cpu->regs.pc, cpu);
     cpu->regs.pc = addr;
 }
+
 void ret(struct cpu *cpu) {
     pop(&cpu->regs.pc, cpu);
     cpu_idle(cpu);
@@ -149,19 +134,11 @@ void jr(int8_t off, struct cpu *cpu) {
     cpu->regs.pc += off;
     cpu_idle(cpu);
 }
+
 void jp(uint16_t addr, struct cpu *cpu) {
     cpu->regs.pc = addr;
     cpu_idle(cpu);
 }
-
-// daa
-void daa(struct cpu_regs *regs) { alu_daa(regs); }
-
-// scf
-void scf(struct cpu_regs *regs) { alu_scf(regs); }
-
-// ccf
-void ccf(struct cpu_regs *regs) { alu_ccf(regs); }
 
 // PREFIXED
 static uint8_t *reg_operand(uint8_t idx, struct cpu_regs *regs) {

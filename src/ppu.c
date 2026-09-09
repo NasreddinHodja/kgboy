@@ -6,32 +6,7 @@
 #include <string.h>
 
 void ppu_init(struct ppu *ppu) {
-    ppu->dots = 0;
-    memset(ppu->fb, 0, sizeof(ppu->fb));
-    ppu->frame_count = 0; // NOTE: debug info
-    ppu->frame_ready = false;
-
-    ppu->obj_count = 0;
-    ppu->next_obj = 0;
-    ppu->bg_fifo_head = 0;
-    ppu->bg_fifo_head = 0;
-    memset(ppu->bg_fifo, 0, sizeof(ppu->bg_fifo));
-    ppu->ob_fifo_head = 0;
-    ppu->ob_fifo_len = 0;
-    memset(ppu->bg_fifo, 0, sizeof(ppu->ob_fifo));
-    memset(ppu->ly_objs, 0, sizeof(ppu->ly_objs));
-    ppu->fetcher_dot = 0;
-    ppu->fetcher_state = FETCHER_GET_TILE_NUM;
-    ppu->fetcher_dot = 0;
-    ppu->fetcher_x = 0;
-    ppu->discard = 0;
-    ppu->tile_addr = 0;
-    ppu->tile_num = 0;
-    ppu->tile_lo = 0;
-    ppu->tile_hi = 0;
-    ppu->pixel_x = 0;
-    ppu->window_line = 0;
-    ppu->wy_triggered = false;
+    memset(ppu, 0, sizeof(*ppu));
 
     ppu->lcdc = 0x91;
     ppu->stat = 0x85;
@@ -39,7 +14,6 @@ void ppu_init(struct ppu *ppu) {
     ppu->scx = 0x00;
     ppu->ly = 0x00;
     ppu->lyc = 0x00;
-    ppu->dma = 0xFF;
     ppu->bgp = 0xFC;
     ppu->obp0 = 0x00;
     ppu->obp1 = 0x00;
@@ -55,7 +29,12 @@ static void ppu_set_mode(struct ppu *ppu, uint8_t m) {
     ppu->stat = (ppu->stat & 0xFC) | m;
 }
 
+static void ppu_ly_lyc_comp(struct ppu *ppu) {
+    ppu->stat = (ppu->stat & ~(1 << 2)) | (ppu->ly == ppu->lyc) << 2;
+}
+
 static void ppu_recompute_stat_line(struct ppu *ppu, struct bus *bus) {
+    ppu_ly_lyc_comp(ppu);
     const bool prev_line = ppu->stat_line;
     ppu->stat_line = (((ppu->stat >> 3) & 1) && ppu_get_mode(ppu) == 0)
         || (((ppu->stat >> 4) & 1) && ppu_get_mode(ppu) == 1)
@@ -63,54 +42,6 @@ static void ppu_recompute_stat_line(struct ppu *ppu, struct bus *bus) {
         || (((ppu->stat >> 6) & 1) && ppu->ly == ppu->lyc);
     if (ppu->stat_line && !prev_line) bus_request_interrupt(bus, INT_STAT);
 }
-
-/* static void ppu_fb_dump_ppm(struct ppu *ppu) { */
-/*     char file_name[32]; */
-/*     snprintf(file_name, sizeof(file_name), "frame-%zu.ppm",
- * ppu->frame_count); */
-
-/*     FILE *fp = fopen(file_name, "wb"); */
-/*     if (fp == NULL) { */
-/*         perror("fopen"); */
-/*         exit(1); */
-/*     } */
-
-/*     fprintf(fp, "P6\n%d %d\n255\n", SCREEN_W, SCREEN_H); */
-
-/*     for (size_t line = 0; line < SCREEN_H; line++) { */
-/*         for (size_t col = 0; col < SCREEN_W; col++) { */
-/*             const uint8_t color = (ppu->bgp >> (ppu->fb[line][col] * 2)) & 3;
- */
-/*             unsigned char r = 224; */
-/*             unsigned char g = 248; */
-/*             unsigned char b = 208; */
-/*             switch (color) { */
-/*             case 0: // white */
-/*                 break; */
-/*             case 1: // light gray */
-/*                 r = 136; */
-/*                 g = 192; */
-/*                 b = 112; */
-/*                 break; */
-/*             case 2: // dark gray */
-/*                 r = 52; */
-/*                 g = 104; */
-/*                 b = 86; */
-/*                 break; */
-/*             case 3: // black */
-/*                 r = 8; */
-/*                 g = 24; */
-/*                 b = 32; */
-/*                 break; */
-/*             } */
-/*             fputc(r, fp); */
-/*             fputc(g, fp); */
-/*             fputc(b, fp); */
-/*         } */
-/*     } */
-
-/*     fclose(fp); */
-/* } */
 
 static void ppu_frame_done(struct ppu *ppu) {
     ppu->frame_ready = true;
@@ -185,33 +116,7 @@ static void ppu_fetcher_tick(struct ppu *ppu, struct bus *bus) {
     }
 }
 
-/* static void ppu_render_line(struct ppu *ppu, struct bus *bus) { */
-/*     const uint8_t scrolled_l = (ppu->scy + ppu->ly) & 255; */
-/*     const uint8_t tilemap_l = scrolled_l / 8; */
-
-/*     for (size_t col = 0; col < SCREEN_W; col++) { */
-/*         const uint8_t scrolled_c = (ppu->scx + col) & 255; */
-/*         const uint8_t tilemap_c = scrolled_c / 8; */
-
-/*         const uint8_t tile_idx = */
-/*             bus_mem_read8(bus, 0x9800 + tilemap_l * 32 + tilemap_c); */
-/*         const uint16_t tile_addr = 0x8000 + tile_idx * 16; */
-/*         const uint16_t tile_row_addr = tile_addr + (scrolled_l % 8) * 2; */
-
-/*         const uint8_t lo = bus_mem_read8(bus, tile_row_addr); */
-/*         const uint8_t hi = bus_mem_read8(bus, tile_row_addr + 1); */
-
-/*         // extract 1 pix */
-/*         const uint8_t bit = 7 - (scrolled_c % 8); */
-/*         const uint8_t color = (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1);
- */
-/*         const uint8_t shade = (ppu->bgp >> (color * 2)) & 3; */
-
-/*         ppu->fb[ppu->ly][col] = shade; */
-/*     } */
-/* } */
-
-void oam_scan(struct ppu *ppu, struct bus *bus) {
+static void oam_scan(struct ppu *ppu, struct bus *bus) {
     const uint8_t size = ((ppu->lcdc >> 2) & 0x01) ? 16 : 8;
     ppu->obj_count = 0;
 
@@ -306,7 +211,7 @@ static void ppu_pop_and_render(struct ppu *ppu, struct bus *bus) {
 
     struct fifo_item ob_item;
     struct fifo_item bg_item = ppu->bg_fifo[ppu->bg_fifo_head];
-    if (!(ppu->lcdc & 1)) bg_item.color = (ppu->bgp & 3);
+    if (!(ppu->lcdc & 1)) bg_item.color = 0;
 
     ppu->bg_fifo_head = (ppu->bg_fifo_head + 1) & (FIFO_SIZE - 1);
     ppu->bg_fifo_len--;
@@ -349,9 +254,7 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
 
     if (!(ppu->lcdc & (1 << 7))) {
         ppu->ly = 0;
-        ppu->stat |= (ppu->ly == ppu->lyc) << 2;
         ppu_set_mode(ppu, 0);
-        ppu_recompute_stat_line(ppu, bus);
         ppu->dots = 0;
         return;
     }
@@ -359,7 +262,6 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
     for (size_t c = 0; c < cycles; c++) {
         ppu->dots++;
 
-        ppu->stat |= (ppu->ly == ppu->lyc) << 2;
 
         if (ppu->ly < 144) {
             if (ppu->dots == 1) { // mode 2
@@ -380,10 +282,10 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
                 ppu->ob_fifo_head = 0;
                 ppu->ob_fifo_len = 0;
                 ppu->next_obj = 0;
-            } else if (ppu->dots > 80 && ppu->pixel_x < 160) { // mode 3
+            } else if (ppu->dots >= 82 && ppu->pixel_x <= 172) { // mode 3
                 ppu_pop_and_render(ppu, bus);
                 ppu_fetcher_tick(ppu, bus);
-            } else if (ppu->pixel_x == 160) { // mode 0
+            } else if (ppu->pixel_x == 173) { // mode 0
                 ppu_set_mode(ppu, 0);
                 ppu_recompute_stat_line(ppu, bus);
             }
@@ -394,7 +296,6 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
             ppu->dots = 0;
             ppu->ly++;
             ppu_recompute_stat_line(ppu, bus);
-            ppu->stat |= (ppu->ly == ppu->lyc) << 2;
 
 
             if (ppu->ly == 144) {
@@ -405,7 +306,6 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
                 ppu_frame_done(ppu);
             } else if (ppu->ly == 154) {
                 ppu->ly = 0;
-                ppu->stat |= (ppu->ly == ppu->lyc) << 2;
                 ppu->window_line = 0;
                 ppu_set_mode(ppu, 2);
                 ppu_recompute_stat_line(ppu, bus);
@@ -431,8 +331,6 @@ uint8_t ppu_read_r(struct ppu *ppu, uint16_t addr) {
         return ppu->ly;
     case 0xFF45:
         return ppu->lyc;
-    case 0xFF46:
-        return ppu->dma;
     case 0xFF47:
         return ppu->bgp;
     case 0xFF48:
@@ -472,11 +370,7 @@ void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val, struct bus *bus) {
         break;
     case 0xFF45:
         ppu->lyc = val;
-        ppu->stat |= (ppu->ly == ppu->lyc) << 2;
         ppu_recompute_stat_line(ppu, bus);
-        break;
-    case 0xFF46: // OAM DMA triggered in bus
-        ppu->dma = val;
         break;
     case 0xFF47:
         ppu->bgp = val;

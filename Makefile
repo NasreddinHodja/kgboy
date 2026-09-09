@@ -3,7 +3,7 @@ CC = gcc
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
 SDL_LIBS   := $(shell pkg-config --libs sdl2)
 
-CFLAGS = -Wall -Wextra -std=c17 -g -Iinclude -MMD -MP $(SDL_CFLAGS)
+CFLAGS = -Wall -Wextra -std=c17 -g -Iinclude -MMD -MP -O2 $(SDL_CFLAGS)
 LDLIBS = $(SDL_LIBS)
 
 SRC_DIR = src
@@ -13,7 +13,7 @@ BIN_DIR = bin
 SRC = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/*/*.c)
 OBJ = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC))
 DEP = $(OBJ:.o=.d)
-TARGET = $(BIN_DIR)/gbemu
+TARGET = $(BIN_DIR)/kgboy
 
 $(TARGET): $(OBJ)
 	@mkdir -p $(@D)
@@ -47,9 +47,10 @@ clean:
 
 .PHONY: clean
 
-blarggs: $(TARGET)
+test: $(TARGET)
 	$< -r roms/blargg/cpu_instrs/cpu_instrs.gb
 	$< -r roms/blargg/instr_timing/instr_timing.gb
 	$< -r roms/blargg/mem_timing/mem_timing.gb
+	$< -r roms/dmg-acid2.gb
 
-.PHONY: blarggs
+.PHONY: test

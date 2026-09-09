@@ -1,8 +1,7 @@
+#include "bus.h"
 #include "cpu.h"
 #include "display.h"
 #include "gb.h"
-#include "bus.h"
-#include <assert.h>
 #include <getopt.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -34,39 +33,36 @@ int main(int argc, char *argv[]) {
     }
 
     struct gb gb;
-    gb_init(&gb, rom_path, trace);
+    if (!gb_init(&gb, rom_path, trace)) {
+        return 1;
+    }
 
     struct display disp;
-    assert(display_init(&disp));
-
-    fprintf(stdout, "\n");
+    if (!display_init(&disp)) {
+        gb_destroy(&gb);
+        return 1;
+    }
 
     uint32_t steps = 0;
     bool running = true;
     while (running) {
-        if (trace) fprintf(stdout, "Step %u\n", steps);
+        if (trace)
+            fprintf(stdout, "Step %u\n", steps++);
+
         gb_step(&gb);
+
         if (gb.ppu.frame_ready) {
             gb.ppu.frame_ready = false;
             display_present(&disp, gb.ppu.fb);
             running = display_poll(&gb.jp);
         }
-        if (trace) fprintf(stdout, "Ran %lu t-cycles.\n\n", gb.cpu.cycles);
+
+        if (trace)
+            fprintf(stdout, "Ran %lu t-cycles.\n\n", gb.cpu.cycles);
     }
 
-    // step
-    fprintf(stdout, "\n");
-
-    // print state
-    cpu_regs_print(&gb.cpu.regs);
-    fprintf(stdout, "\n");
-
-    fprintf(stdout, " - $8000:\n");
-    bus_mem_print(&gb.bus, 0x0200, 64);
-    fprintf(stdout, "\n");
-    fprintf(stdout, "Tile Map 0 - $9800:\n");
-    bus_mem_print(&gb.bus, 0xFE00, 64);
-    fprintf(stdout, "\n");
+    gb_destroy(&gb);
+    display_destroy(&disp);
 
     return 0;
 }

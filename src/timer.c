@@ -6,7 +6,7 @@ void timer_init(struct timer *timer) {
     timer->counter = 0xABCC;  // NOTE: guessing
     timer->tima = 0;
     timer->tma = 0; 
-    timer->tac = 0xF8;  
+    timer->tac = 0x00;  
 }
 
 void timer_tick(struct timer *timer, size_t cycles, struct bus *bus) {
@@ -40,7 +40,7 @@ uint8_t timer_read_r(struct timer *timer, uint16_t addr) {
         case 0xFF06:
             return timer->tma;
         case 0xFF07:
-            return timer->tac;
+            return timer->tac | 0xF8; // upper 5 bits read as 1
         default:
             return 0;
     }
@@ -58,7 +58,7 @@ void timer_write_r(struct timer *timer, uint16_t addr, uint8_t val) {
             timer->tma = val;
             break;
         case 0xFF07:
-            timer->tac = val;
+            timer->tac = val & 0x07; // store only low 3
             break;
         default:
             break;

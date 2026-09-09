@@ -12,7 +12,7 @@
 #define MAX_OBJS 10
 
 enum fetcher_state {
-    FETCHER_GET_TILE_NUM,
+    FETCHER_GET_TILE_NUM = 0,
     FETCHER_GET_TILE_LO,
     FETCHER_GET_TILE_HI,
     FETCHER_SLEEP,
@@ -69,7 +69,6 @@ struct ppu {
     uint8_t scx;  // FF43 bg scroll X 
     uint8_t ly;   // FF44 curr line
     uint8_t lyc;  // FF45 line compare
-    uint8_t dma;  // FF46 OAM DMA start
     uint8_t bgp;  // FF47 BG palette
     uint8_t obp0; // FF48 OBG pallette 0
     uint8_t obp1; // FF49 OBG pallette 1

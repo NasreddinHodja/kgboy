@@ -19,6 +19,11 @@ struct bus {
     struct timer *timer;
     struct joypad *jp;
 
+    uint8_t dma;
+    bool dma_active;
+    uint16_t dma_src;
+    size_t dma_idx;
+
     uint8_t vram[0x2000];
     uint8_t wram[0x2000];
     // [ 0xE000, 0xFDFF ] ECHO RAM
@@ -37,6 +42,8 @@ uint16_t bus_mem_read16(struct bus *bus, uint16_t addr);
 void bus_mem_write16(struct bus *bus, uint16_t addr, uint16_t val);
 
 int bus_mem_print(struct bus *bus, uint16_t start, size_t length);
+
+void dma_tick(struct bus * bus);
 
 void bus_request_interrupt(struct bus *bus, enum interrupt intr);
 #endif // BUS_H_

@@ -1,14 +1,13 @@
 #include "gb.h"
 #include <stdio.h>
-#include <stdlib.h>
 
-void gb_init(struct gb *gb, const char *rom_path, const bool trace) {
+bool gb_init(struct gb *gb, const char *rom_path, const bool trace) {
     gb->trace = trace;
 
     // load cart
     if (cart_load(&gb->cart, rom_path)) {
         fprintf(stderr, "Error: invalid cart %s", rom_path);
-        exit(1);
+        return false;
     }
     cart_print(&gb->cart);
 
@@ -21,6 +20,12 @@ void gb_init(struct gb *gb, const char *rom_path, const bool trace) {
     ppu_init(&gb->ppu);
     cpu_init(&gb->cpu, &gb->bus, &gb->ppu, &gb->timer);
     cpu_skip_boot(&gb->cpu);
+
+    return true;
+}
+
+void gb_destroy(struct gb *gb) {
+    cart_free(&gb->cart);
 }
 
 void gb_step(struct gb *gb) {

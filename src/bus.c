@@ -14,6 +14,7 @@ void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu,
     bus->ppu = ppu;
     bus->timer = timer;
     bus->jp = jp;
+    bus->dma = 0xFF;
 }
 
 static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
@@ -30,6 +31,7 @@ static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
     } else if (addr >= 0xFF04 && addr <= 0xFF07) { // timer
         return timer_read_r(bus->timer, addr);
     } else if (addr >= 0xFF40 && addr <= 0xFF4B) { // ppu
+        if (addr == 0xFF46) return bus->dma;
         return ppu_read_r(bus->ppu, addr);
     } else if (addr < 0xFF80) { // io
         return bus->io[addr - 0xFF00];
@@ -79,10 +81,16 @@ uint16_t bus_mem_read16(struct bus *bus, uint16_t addr) {
     return bus_mem_read8(bus, addr) | (bus_mem_read8(bus, addr + 1) << 8);
 }
 
-static void bus_oam_dma_transfer(struct bus *bus, uint8_t val) {
-    const uint16_t src = val << 8;
-    for (size_t i = 0; i < 0xA0; i++)
-        bus->oam[i] = bus_mem_read8(bus, src + i);
+void dma_tick(struct bus * bus) {
+    if (!bus->dma_active) return;
+
+    bus->oam[bus->dma_idx] = bus_mem_read8(bus, bus->dma_src + bus->dma_idx);
+    bus->dma_idx++;
+
+    if (bus->dma_idx >= 0xA0) {
+        bus->dma_idx = 0;    
+        bus->dma_active = false;    
+    }
 }
 
 static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
@@ -99,13 +107,16 @@ static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
         putchar(bus->io[0x01]);
         fflush(stdout);
         bus->io[0x02] = val & ~(1 << 7);
-        bus_request_interrupt(bus, INT_SERIAL);
+        /* bus_request_interrupt(bus, INT_SERIAL); */ // TODO: serial
     } else if (addr >= 0xFF04 && addr <= 0xFF07) { // timer
         timer_write_r(bus->timer, addr, val);
     } else if (addr >= 0xFF40 && addr <= 0xFF4B) { // IO registers
-        if (addr == 0xFF46)
-            bus_oam_dma_transfer(bus, val);
-        else
+        if (addr == 0xFF46) {
+            bus->dma_active = true;
+            bus->dma_src = val << 8;
+            bus->dma_idx = 0;
+            bus->dma = val;
+        } else
             ppu_write_r(bus->ppu, addr, val, bus);
     } else if (addr < 0xFF80) { // OAM DAM transfer
         bus->io[addr - 0xFF00] = val;

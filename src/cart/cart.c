@@ -97,6 +97,7 @@ int cart_load(struct cart *cart, const char *path) {
 
     if (cart_parse_header(cart) < 0) {
         free(rom);
+        cart->rom = NULL;
         return -1;
     }
 

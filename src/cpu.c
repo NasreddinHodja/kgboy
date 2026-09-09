@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "alu.h"
 #include "ppu.h"
 #include "bus.h"
 #include "ops.h"
@@ -63,17 +64,20 @@ static bool cond_met(uint8_t opcode, struct cpu_regs *regs) {
 
 static void cpu_tick(struct cpu *cpu) {
     timer_tick(cpu->timer, 4, cpu->bus);
+    dma_tick(cpu->bus);
     ppu_tick(cpu->ppu, 4, cpu->bus);
     cpu->cycles += 4;
 }
 
 uint8_t cpu_read8(struct cpu *cpu, uint16_t addr) {
     cpu_tick(cpu);
+    if (cpu->bus->dma_active && addr < 0xFF80) return 0xFF;
     return bus_mem_read8(cpu->bus, addr);
 }
 
 void cpu_write8(struct cpu *cpu, uint16_t addr, uint8_t val) {
     cpu_tick(cpu);
+    if (cpu->bus->dma_active && addr < 0xFF80) return;
     bus_mem_write8(cpu->bus, addr, val);
 }
 
@@ -101,7 +105,7 @@ static uint8_t handle_interrupt(uint8_t bit, struct cpu *cpu) {
     return 20;
 }
 
-static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
+static void cpu_execute(struct cpu *cpu, bool trace) {
     struct cpu_regs *regs = &cpu->regs;
     struct bus *bus = cpu->bus;
 
@@ -114,14 +118,16 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
         regs->halted = false;
     if (regs->halted) {
         cpu_idle(cpu);
-        return 4;
+        return;
     }
 
     // handle interrupts
     if (regs->ime)
         for (size_t i = 0; i < 5; i++)
-            if ((bus->ie & (1 << i)) && (bus->io[0x0F] & (1 << i)))
-                return handle_interrupt(i, cpu);
+            if ((bus->ie & (1 << i)) && (bus->io[0x0F] & (1 << i))) {
+                handle_interrupt(i, cpu);
+                return;
+            }
 
     // ime promotion
     if (regs->ime_pending) {
@@ -140,1128 +146,1129 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
     // NOP
     case 0x00:
         nop();
-        return 4;
+        break;
 
     // LD BC,u16
     case 0x01:
         ld_r16_n16(&regs->bc, next_token16(cpu));
-        return 12;
+        break;
 
     // LD (BC),A
     case 0x02:
         ld_m_n8(regs->bc, regs->a, cpu);
-        return 8;
+        break;
 
     // INC BC
     case 0x03:
         inc_r16(&regs->bc, cpu);
-        return 8;
+        break;
 
     // INC B
     case 0x04:
-        inc_r8(&regs->b, regs);
-        return 4;
+        alu_inc_r8(&regs->b, regs);
+        break;
 
     // DEC B
     case 0x05:
-        dec_r8(&regs->b, regs);
-        return 4;
+        alu_dec_r8(&regs->b, regs);
+        break;
 
     // LD B,u8
     case 0x06:
         ld_r8_n8(&regs->b, next_token8(cpu));
-        return 8;
+        break;
 
     // RLCA
     case 0x07:
         rlca(regs);
-        return 4;
+        break;
 
     // LD (a16),SP
     case 0x08:
         ld_m_n16(next_token16(cpu), regs->sp, cpu);
-        return 20;
+        break;
 
     // ADD HL,BC
     case 0x09:
         add_r16_n16(&regs->hl, regs->bc, cpu);
-        return 8;
+        break;
 
     // LD A,(BC)
     case 0x0A:
         ld_r8_n8(&regs->a, cpu_read8(cpu, regs->bc));
-        return 8;
+        break;
 
     // DEC BC
     case 0x0B:
         dec_r16(&regs->bc, cpu);
-        return 8;
+        break;
 
     // INC C
     case 0x0C:
-        inc_r8(&regs->c, regs);
-        return 4;
+        alu_inc_r8(&regs->c, regs);
+        break;
 
     // DEC C
     case 0x0D:
-        dec_r8(&regs->c, regs);
-        return 4;
+        alu_dec_r8(&regs->c, regs);
+        break;
 
     // LD C,u8
     case 0x0E:
         ld_r8_n8(&regs->c, next_token8(cpu));
-        return 8;
+        break;
 
     // RRCA
     case 0x0F:
         rrca(regs);
-        return 4;
+        break;
 
     // 0x1- ====================================================================
     // STOP
     case 0x10:
         stop();
         regs->pc++;
-        return 4;
+        break;
 
     // LD DE,u16
     case 0x11:
         ld_r16_n16(&regs->de, next_token16(cpu));
-        return 12;
+        break;
 
     // LD (DE),A
     case 0x12:
         ld_m_n8(regs->de, regs->a, cpu);
-        return 8;
+        break;
 
     // INC DE
     case 0x13:
         inc_r16(&regs->de, cpu);
-        return 8;
+        break;
 
     // INC D
     case 0x14:
-        inc_r8(&regs->d, regs);
-        return 4;
+        alu_inc_r8(&regs->d, regs);
+        break;
 
     // DEC D
     case 0x15:
-        dec_r8(&regs->d, regs);
-        return 4;
+        alu_dec_r8(&regs->d, regs);
+        break;
 
     // LD d,u8
     case 0x16:
         ld_r8_n8(&regs->d, next_token8(cpu));
-        return 8;
+        break;
 
     // LD,u8
     case 0x17:
         rla(regs);
-        return 4;
+        break;
 
     // JR i8
     case 0x18:
         jr((int8_t)next_token8(cpu), cpu);
-        return 12;
+        break;
 
     // ADD HL,DE
     case 0x19:
         add_r16_n16(&regs->hl, regs->de, cpu);
-        return 8;
+        break;
 
     // LD A,(DE)
     case 0x1A:
         ld_r8_n8(&regs->a, cpu_read8(cpu, regs->de));
-        return 8;
+        break;
 
     // DEC DE
     case 0x1B:
         dec_r16(&regs->de, cpu);
-        return 8;
+        break;
 
     // INC E
     case 0x1C:
-        inc_r8(&regs->e, regs);
-        return 4;
+        alu_inc_r8(&regs->e, regs);
+        break;
 
     // DEC E
     case 0x1D:
-        dec_r8(&regs->e, regs);
-        return 4;
+        alu_dec_r8(&regs->e, regs);
+        break;
 
     // LD E,u8
     case 0x1E:
         ld_r8_n8(&regs->e, next_token8(cpu));
-        return 8;
+        break;
 
     // RRA
     case 0x1F:
         rra(regs);
-        return 4;
+        break;
 
     // 0x2- ====================================================================
     // LD HL,u16
     case 0x21:
         ld_r16_n16(&regs->hl, next_token16(cpu));
-        return 12;
+        break;
 
     // LD (HL+),A
     case 0x22:
         ld_m_n8(regs->hl, regs->a, cpu);
         regs->hl++;
-        return 8;
+        break;
 
     // INC HL
     case 0x23:
         inc_r16(&regs->hl, cpu);
-        return 8;
+        break;
 
     // INC H
     case 0x24:
-        inc_r8(&regs->h, regs);
-        return 4;
+        alu_inc_r8(&regs->h, regs);
+        break;
 
     // DEC H
     case 0x25:
-        dec_r8(&regs->h, regs);
-        return 4;
+        alu_dec_r8(&regs->h, regs);
+        break;
 
     // LD H,u8
     case 0x26:
         ld_r8_n8(&regs->h, next_token8(cpu));
-        return 8;
+        break;
 
     // DAA
     case 0x27:
-        daa(regs);
-        return 4;
+        alu_daa(regs);
+        break;
 
     // ADD HL,HL
     case 0x29:
         add_r16_n16(&regs->hl, regs->hl, cpu);
-        return 8;
+        break;
 
     // LD A,(HL+)
     case 0x2A:
         ld_r8_n8(&regs->a, cpu_read8(cpu, regs->hl));
         regs->hl++;
-        return 8;
+        break;
 
     // DEC HL
     case 0x2B:
         dec_r16(&regs->hl, cpu);
-        return 8;
+        break;
 
     // INC L
     case 0x2C:
-        inc_r8(&regs->l, regs);
-        return 4;
+        alu_inc_r8(&regs->l, regs);
+        break;
 
     // DEC L
     case 0x2D:
-        dec_r8(&regs->l, regs);
-        return 4;
+        alu_dec_r8(&regs->l, regs);
+        break;
 
     // LD L,u8
     case 0x2E:
         ld_r8_n8(&regs->l, next_token8(cpu));
-        return 8;
+        break;
 
     // CPL
     case 0x2F:
-        cpl(regs);
-        return 4;
+        alu_cpl(regs);
+        break;
 
     // 0x3- ====================================================================
     // LD SP,u16
     case 0x31:
         ld_r16_n16(&regs->sp, next_token16(cpu));
-        return 12;
+        break;
 
     // LD (HL-),A
     case 0x32:
         ld_m_n8(regs->hl, regs->a, cpu);
         regs->hl--;
-        return 8;
+        break;
 
     // INC SP
     case 0x33:
         inc_r16(&regs->sp, cpu);
-        return 8;
+        break;
 
     // INC (HL)
     case 0x34:
         inc_m(regs->hl, cpu);
-        return 12;
+        break;
 
     // DEC (HL)
     case 0x35:
         dec_m(regs->hl, cpu);
-        return 12;
+        break;
 
     // LD (HL),u8
     case 0x36:
         ld_m_n8(regs->hl, next_token8(cpu), cpu);
-        return 12;
+        break;
 
     // SCF
     case 0x37:
-        scf(regs);
-        return 4;
+        alu_scf(regs);
+        break;
 
     // ADD HL,SP
     case 0x39:
         add_r16_n16(&regs->hl, regs->sp, cpu);
-        return 8;
+        break;
 
     // LD A,(HL-)
     case 0x3A:
         ld_r8_n8(&regs->a, cpu_read8(cpu, regs->hl));
         regs->hl--;
-        return 8;
+        break;
 
     // DEC SP
     case 0x3B:
         dec_r16(&regs->sp, cpu);
-        return 8;
+        break;
 
     // INC A
     case 0x3C:
-        inc_r8(&regs->a, regs);
-        return 4;
+        alu_inc_r8(&regs->a, regs);
+        break;
 
     // DEC A
     case 0x3D:
-        dec_r8(&regs->a, regs);
-        return 4;
+        alu_dec_r8(&regs->a, regs);
+        break;
 
     // LD A,u8
     case 0x3E:
         ld_r8_n8(&regs->a, next_token8(cpu));
-        return 8;
+        break;
 
     // CFF
     case 0x3F:
-        ccf(regs);
-        return 4;
+        alu_ccf(regs);
+        break;
 
     // 0x4- ====================================================================
     // LD B,B
     case 0x40:
         ld_r8_n8(&regs->b, regs->b);
-        return 4;
+        break;
 
     // LD B,C
     case 0x41:
         ld_r8_n8(&regs->b, regs->c);
-        return 4;
+        break;
 
     // LD B,D
     case 0x42:
         ld_r8_n8(&regs->b, regs->d);
-        return 4;
+        break;
 
     // LD B,E
     case 0x43:
         ld_r8_n8(&regs->b, regs->e);
-        return 4;
+        break;
 
     // LD B,H
     case 0x44:
         ld_r8_n8(&regs->b, regs->h);
-        return 4;
+        break;
 
     // LD B,L
     case 0x45:
         ld_r8_n8(&regs->b, regs->l);
-        return 4;
+        break;
 
     // LD B,(HL)
     case 0x46:
         ld_r8_n8(&regs->b, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD B,A
     case 0x47:
         ld_r8_n8(&regs->b, regs->a);
-        return 4;
+        break;
 
     // LD C,B
     case 0x48:
         ld_r8_n8(&regs->c, regs->b);
-        return 4;
+        break;
 
     // LD C,C
     case 0x49:
         ld_r8_n8(&regs->c, regs->c);
-        return 4;
+        break;
 
     // LD C,D
     case 0x4A:
         ld_r8_n8(&regs->c, regs->d);
-        return 4;
+        break;
 
     // LD C,E
     case 0x4B:
         ld_r8_n8(&regs->c, regs->e);
-        return 4;
+        break;
 
     // LD C,H
     case 0x4C:
         ld_r8_n8(&regs->c, regs->h);
-        return 4;
+        break;
 
     // LD C,L
     case 0x4D:
         ld_r8_n8(&regs->c, regs->l);
-        return 4;
+        break;
 
     // LD C,(HL)
     case 0x4E:
         ld_r8_n8(&regs->c, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD C,A
     case 0x4F:
         ld_r8_n8(&regs->c, regs->a);
-        return 4;
+        break;
 
     // 0x5- ====================================================================
     // LD D,B
     case 0x50:
         ld_r8_n8(&regs->d, regs->b);
-        return 4;
+        break;
 
     // LD D,C
     case 0x51:
         ld_r8_n8(&regs->d, regs->c);
-        return 4;
+        break;
 
     // LD D,D
     case 0x52:
         ld_r8_n8(&regs->d, regs->d);
-        return 4;
+        break;
 
     // LD D,E
     case 0x53:
         ld_r8_n8(&regs->d, regs->e);
-        return 4;
+        break;
 
     // LD D,H
     case 0x54:
         ld_r8_n8(&regs->d, regs->h);
-        return 4;
+        break;
 
     // LD D,L
     case 0x55:
         ld_r8_n8(&regs->d, regs->l);
-        return 4;
+        break;
 
     // LD D,(HL)
     case 0x56:
         ld_r8_n8(&regs->d, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD D,A
     case 0x57:
         ld_r8_n8(&regs->d, regs->a);
-        return 4;
+        break;
 
     // LD E,B
     case 0x58:
         ld_r8_n8(&regs->e, regs->b);
-        return 4;
+        break;
 
     // LD E,C
     case 0x59:
         ld_r8_n8(&regs->e, regs->c);
-        return 4;
+        break;
 
     // LD E,D
     case 0x5A:
         ld_r8_n8(&regs->e, regs->d);
-        return 4;
+        break;
 
     // LD E,E
     case 0x5B:
         ld_r8_n8(&regs->e, regs->e);
-        return 4;
+        break;
 
     // LD E,H
     case 0x5C:
         ld_r8_n8(&regs->e, regs->h);
-        return 4;
+        break;
 
     // LD E,L
     case 0x5D:
         ld_r8_n8(&regs->e, regs->l);
-        return 4;
+        break;
 
     // LD E,(HL)
     case 0x5E:
         ld_r8_n8(&regs->e, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD E,A
     case 0x5F:
         ld_r8_n8(&regs->e, regs->a);
-        return 4;
+        break;
 
     // 0x6- ====================================================================
     // LD H,B
     case 0x60:
         ld_r8_n8(&regs->h, regs->b);
-        return 4;
+        break;
 
     // LD H,C
     case 0x61:
         ld_r8_n8(&regs->h, regs->c);
-        return 4;
+        break;
 
     // LD H,D
     case 0x62:
         ld_r8_n8(&regs->h, regs->d);
-        return 4;
+        break;
 
     // LD H,E
     case 0x63:
         ld_r8_n8(&regs->h, regs->e);
-        return 4;
+        break;
 
     // LD H,H
     case 0x64:
         ld_r8_n8(&regs->h, regs->h);
-        return 4;
+        break;
 
     // LD H,L
     case 0x65:
         ld_r8_n8(&regs->h, regs->l);
-        return 4;
+        break;
 
     // LD H,(HL)
     case 0x66:
         ld_r8_n8(&regs->h, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD H,A
     case 0x67:
         ld_r8_n8(&regs->h, regs->a);
-        return 4;
+        break;
 
     // LD L,B
     case 0x68:
         ld_r8_n8(&regs->l, regs->b);
-        return 4;
+        break;
 
     // LD L,C
     case 0x69:
         ld_r8_n8(&regs->l, regs->c);
-        return 4;
+        break;
 
     // LD L,D
     case 0x6A:
         ld_r8_n8(&regs->l, regs->d);
-        return 4;
+        break;
 
     // LD L,E
     case 0x6B:
         ld_r8_n8(&regs->l, regs->e);
-        return 4;
+        break;
 
     // LD L,H
     case 0x6C:
         ld_r8_n8(&regs->l, regs->h);
-        return 4;
+        break;
 
     // LD L,L
     case 0x6D:
         ld_r8_n8(&regs->l, regs->l);
-        return 4;
+        break;
 
     // LD L,(HL)
     case 0x6E:
         ld_r8_n8(&regs->l, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD L,A
     case 0x6F:
         ld_r8_n8(&regs->l, regs->a);
-        return 4;
+        break;
 
     // 0x7- ====================================================================
     // LD (HL),B
     case 0x70:
         ld_m_n8(regs->hl, regs->b, cpu);
-        return 8;
+        break;
 
     // LD (HL),C
     case 0x71:
         ld_m_n8(regs->hl, regs->c, cpu);
-        return 8;
+        break;
 
     // LD (HL),D
     case 0x72:
         ld_m_n8(regs->hl, regs->d, cpu);
-        return 8;
+        break;
 
     // LD (HL),E
     case 0x73:
         ld_m_n8(regs->hl, regs->e, cpu);
-        return 8;
+        break;
 
     // LD (HL),H
     case 0x74:
         ld_m_n8(regs->hl, regs->h, cpu);
-        return 8;
+        break;
 
     // LD (HL),L
     case 0x75:
         ld_m_n8(regs->hl, regs->l, cpu);
-        return 8;
+        break;
 
     // HALT
     case 0x76:
         halt(regs);
-        return 4;
+        break;
 
     // LD (HL),A
     case 0x77:
         ld_m_n8(regs->hl, regs->a, cpu);
-        return 8;
+        break;
 
     // LD A,B
     case 0x78:
         ld_r8_n8(&regs->a, regs->b);
-        return 4;
+        break;
 
     // LD A,C
     case 0x79:
         ld_r8_n8(&regs->a, regs->c);
-        return 4;
+        break;
 
     // LD A,D
     case 0x7A:
         ld_r8_n8(&regs->a, regs->d);
-        return 4;
+        break;
 
     // LD A,E
     case 0x7B:
         ld_r8_n8(&regs->a, regs->e);
-        return 4;
+        break;
 
     // LD A,H
     case 0x7C:
         ld_r8_n8(&regs->a, regs->h);
-        return 4;
+        break;
 
     // LD A,L
     case 0x7D:
         ld_r8_n8(&regs->a, regs->l);
-        return 4;
+        break;
 
     // LD A,(HL)
     case 0x7E:
         ld_r8_n8(&regs->a, cpu_read8(cpu, regs->hl));
-        return 8;
+        break;
 
     // LD A,A
     case 0x7F:
         ld_r8_n8(&regs->a, regs->a);
-        return 4;
+        break;
 
     // 0x8- ====================================================================
     // ADD A,B
     case 0x80:
-        add_n8(regs->b, regs);
-        return 4;
+        alu_add_r8(regs->b, 0, regs);
+        break;
 
     // ADD A,C
     case 0x81:
-        add_n8(regs->c, regs);
-        return 4;
+        alu_add_r8(regs->c, 0, regs);
+        break;
 
     // ADD A,D
     case 0x82:
-        add_n8(regs->d, regs);
-        return 4;
+        alu_add_r8(regs->d, 0, regs);
+        break;
 
     // ADD A,E
     case 0x83:
-        add_n8(regs->e, regs);
-        return 4;
+        alu_add_r8(regs->e, 0, regs);
+        break;
 
     // ADD A,H
     case 0x84:
-        add_n8(regs->h, regs);
-        return 4;
+        alu_add_r8(regs->h, 0, regs);
+        break;
 
     // ADD A,L
     case 0x85:
-        add_n8(regs->l, regs);
-        return 4;
+        alu_add_r8(regs->l, 0, regs);
+        break;
 
     // ADD A,(HL)
     case 0x86:
-        add_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_add_r8(cpu_read8(cpu, regs->hl), 0, regs);
+        break;
 
     // ADD A,A
     case 0x87:
-        add_n8(regs->a, regs);
-        return 4;
+        alu_add_r8(regs->a, 0, regs);
+        break;
 
     // ADC A,B
     case 0x88:
-        adc_n8(regs->b, regs);
-        return 4;
+        alu_add_r8(regs->b, regs->f_bits.c, regs);
+        break;
 
     // ADC A,C
     case 0x89:
-        adc_n8(regs->c, regs);
-        return 4;
+        alu_add_r8(regs->c, regs->f_bits.c, regs);
+        break;
 
     // ADC A,D
     case 0x8A:
-        adc_n8(regs->d, regs);
-        return 4;
+        alu_add_r8(regs->d, regs->f_bits.c, regs);
+        break;
 
     // ADC A,E
     case 0x8B:
-        adc_n8(regs->e, regs);
-        return 4;
+        alu_add_r8(regs->e, regs->f_bits.c, regs);
+        break;
 
     // ADC A,H
     case 0x8C:
-        adc_n8(regs->h, regs);
-        return 4;
+        alu_add_r8(regs->h, regs->f_bits.c, regs);
+        break;
 
     // ADC A,L
     case 0x8D:
-        adc_n8(regs->l, regs);
-        return 4;
+        alu_add_r8(regs->l, regs->f_bits.c, regs);
+        break;
 
     // ADC A,(HL)
     case 0x8E:
-        adc_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_add_r8(cpu_read8(cpu, regs->hl), regs->f_bits.c, regs);
+        break;
 
     // ADC A,A
     case 0x8F:
-        adc_n8(regs->a, regs);
-        return 4;
+        alu_add_r8(regs->a, regs->f_bits.c, regs);
+        break;
 
     // 0x9- ====================================================================
     // SUB A,B
     case 0x90:
-        sub_n8(regs->b, regs);
-        return 4;
+        alu_sub_r8(regs->b, 0, regs);
+        break;
 
     // SUB A,C
     case 0x91:
-        sub_n8(regs->c, regs);
-        return 4;
+        alu_sub_r8(regs->c, 0, regs);
+        break;
 
     // SUB A,D
     case 0x92:
-        sub_n8(regs->d, regs);
-        return 4;
+        alu_sub_r8(regs->d, 0, regs);
+        break;
 
     // SUB A,E
     case 0x93:
-        sub_n8(regs->e, regs);
-        return 4;
+        alu_sub_r8(regs->e, 0, regs);
+        break;
 
     // SUB A,H
     case 0x94:
-        sub_n8(regs->h, regs);
-        return 4;
+        alu_sub_r8(regs->h, 0, regs);
+        break;
 
     // SUB A,L
     case 0x95:
-        sub_n8(regs->l, regs);
-        return 4;
+        alu_sub_r8(regs->l, 0, regs);
+        break;
 
     // SUB A,(HL)
     case 0x96:
-        sub_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_sub_r8(cpu_read8(cpu, regs->hl), 0, regs);
+        break;
 
     // SUB A,A
     case 0x97:
-        sub_n8(regs->a, regs);
-        return 4;
+        alu_sub_r8(regs->a, 0, regs);
+        break;
 
     // SBC A,B
     case 0x98:
-        sbc_n8(regs->b, regs);
-        return 4;
+        alu_sub_r8(regs->b, regs->f_bits.c, regs);
+        break;
 
     // SBC A,C
     case 0x99:
-        sbc_n8(regs->c, regs);
-        return 4;
+        alu_sub_r8(regs->c, regs->f_bits.c, regs);
+        break;
 
     // SBC A,D
     case 0x9A:
-        sbc_n8(regs->d, regs);
-        return 4;
+        alu_sub_r8(regs->d, regs->f_bits.c, regs);
+        break;
 
     // SBC A,E
     case 0x9B:
-        sbc_n8(regs->e, regs);
-        return 4;
+        alu_sub_r8(regs->e, regs->f_bits.c, regs);
+        break;
 
     // SBC A,H
     case 0x9C:
-        sbc_n8(regs->h, regs);
-        return 4;
+        alu_sub_r8(regs->h, regs->f_bits.c, regs);
+        break;
 
     // SBC A,L
     case 0x9D:
-        sbc_n8(regs->l, regs);
-        return 4;
+        alu_sub_r8(regs->l, regs->f_bits.c, regs);
+        break;
 
     // SBC A,(HL)
     case 0x9E:
-        sbc_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_sub_r8(cpu_read8(cpu, regs->hl), regs->f_bits.c, regs);
+        break;
 
     // SBC A,A
     case 0x9F:
-        sbc_n8(regs->a, regs);
-        return 4;
+        alu_sub_r8(regs->a, regs->f_bits.c, regs);
+        break;
 
     // 0xA- ====================================================================
     // AND A,B
     case 0xA0:
-        and_n8(regs->b, regs);
-        return 4;
+        alu_and(regs->b, regs);
+        break;
 
     // AND A,C
     case 0xA1:
-        and_n8(regs->c, regs);
-        return 4;
+        alu_and(regs->c, regs);
+        break;
 
     // AND A,D
     case 0xA2:
-        and_n8(regs->d, regs);
-        return 4;
+        alu_and(regs->d, regs);
+        break;
 
     // AND A,E
     case 0xA3:
-        and_n8(regs->e, regs);
-        return 4;
+        alu_and(regs->e, regs);
+        break;
 
     // AND A,H
     case 0xA4:
-        and_n8(regs->h, regs);
-        return 4;
+        alu_and(regs->h, regs);
+        break;
 
     // AND A,L
     case 0xA5:
-        and_n8(regs->l, regs);
-        return 4;
+        alu_and(regs->l, regs);
+        break;
 
     // AND A,(HL)
     case 0xA6:
-        and_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_and(cpu_read8(cpu, regs->hl), regs);
+        break;
 
     // AND A,A
     case 0xA7:
-        and_n8(regs->a, regs);
-        return 4;
+        alu_and(regs->a, regs);
+        break;
 
     // XOR A,B
     case 0xA8:
-        xor_n8(regs->b, regs);
-        return 4;
+        alu_xor(regs->b, regs);
+        break;
 
     // XOR A,C
     case 0xA9:
-        xor_n8(regs->c, regs);
-        return 4;
+        alu_xor(regs->c, regs);
+        break;
 
     // XOR A,D
     case 0xAA:
-        xor_n8(regs->d, regs);
-        return 4;
+        alu_xor(regs->d, regs);
+        break;
 
     // XOR A,E
     case 0xAB:
-        xor_n8(regs->e, regs);
-        return 4;
+        alu_xor(regs->e, regs);
+        break;
 
     // XOR A,H
     case 0xAC:
-        xor_n8(regs->h, regs);
-        return 4;
+        alu_xor(regs->h, regs);
+        break;
 
     // XOR A,L
     case 0xAD:
-        xor_n8(regs->l, regs);
-        return 4;
+        alu_xor(regs->l, regs);
+        break;
 
     // XOR A,(HL)
     case 0xAE:
-        xor_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_xor(cpu_read8(cpu, regs->hl), regs);
+        break;
 
     // XOR A,A
     case 0xAF:
-        xor_n8(regs->a, regs);
-        return 4;
+        alu_xor(regs->a, regs);
+        break;
 
     // 0xB- ====================================================================
     // OR A,B
     case 0xB0:
-        or_n8(regs->b, regs);
-        return 4;
+        alu_or(regs->b, regs);
+        break;
 
     // OR A,C
     case 0xB1:
-        or_n8(regs->c, regs);
-        return 4;
+        alu_or(regs->c, regs);
+        break;
 
     // OR A,D
     case 0xB2:
-        or_n8(regs->d, regs);
-        return 4;
+        alu_or(regs->d, regs);
+        break;
 
     // OR A,E
     case 0xB3:
-        or_n8(regs->e, regs);
-        return 4;
+        alu_or(regs->e, regs);
+        break;
 
     // OR A,H
     case 0xB4:
-        or_n8(regs->h, regs);
-        return 4;
+        alu_or(regs->h, regs);
+        break;
 
     // OR A,L
     case 0xB5:
-        or_n8(regs->l, regs);
-        return 4;
+        alu_or(regs->l, regs);
+        break;
 
     // OR A,(HL)
     case 0xB6:
-        or_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_or(cpu_read8(cpu, regs->hl), regs);
+        break;
 
     // OR A,A
     case 0xB7:
-        or_n8(regs->a, regs);
-        return 4;
+        alu_or(regs->a, regs);
+        break;
 
     // CP A,B
     case 0xB8:
-        cp_n8(regs->b, regs);
-        return 4;
+        alu_cp(regs->b, regs);
+        break;
 
     // CP A,C
     case 0xB9:
-        cp_n8(regs->c, regs);
-        return 4;
+        alu_cp(regs->c, regs);
+        break;
 
     // CP A,D
     case 0xBA:
-        cp_n8(regs->d, regs);
-        return 4;
+        alu_cp(regs->d, regs);
+        break;
 
     // CP A,E
     case 0xBB:
-        cp_n8(regs->e, regs);
-        return 4;
+        alu_cp(regs->e, regs);
+        break;
 
     // cp A,H
     case 0xBC:
-        cp_n8(regs->h, regs);
-        return 4;
+        alu_cp(regs->h, regs);
+        break;
 
     // cp A,L
     case 0xBD:
-        cp_n8(regs->l, regs);
-        return 4;
+        alu_cp(regs->l, regs);
+        break;
 
     // CP A,(HL)
     case 0xBE:
-        cp_n8(cpu_read8(cpu, regs->hl), regs);
-        return 8;
+        alu_cp(cpu_read8(cpu, regs->hl), regs);
+        break;
 
     // CP A,A
     case 0xBF:
-        cp_n8(regs->a, regs);
-        return 4;
+        alu_cp(regs->a, regs);
+        break;
 
     // 0xC- ====================================================================
     // POP BC
     case 0xC1:
         pop(&regs->bc, cpu);
-        return 12;
+        break;
 
     // JP n16
     case 0xC3:
         jp(next_token16(cpu), cpu);
-        return 16;
+        break;
 
     // PUSH BC
     case 0xC5:
         push(regs->bc, cpu);
-        return 16;
+        break;
 
     // ADD A,u8
     case 0xC6:
-        add_n8(next_token8(cpu), regs);
-        return 8;
+        alu_add_r8(next_token8(cpu), 0, regs);
+        break;
 
     // RET
     case 0xC9:
         ret(cpu);
-        return 16;
+        break;
 
     // PREFIX CB
     case 0xCB:
-        return cpu_step_cb(next_token8(cpu), cpu);
+        cpu_step_cb(next_token8(cpu), cpu);
+        break;
 
     // ADC A,u8
     case 0xCE:
-        adc_n8(next_token8(cpu), regs);
-        return 8;
+        alu_add_r8(next_token8(cpu), regs->f_bits.c, regs);
+        break;
 
     // CALL u16
     case 0xCD:
         call(next_token16(cpu), cpu);
-        return 24;
+        break;
 
     // 0xD- ====================================================================
     // POP DE
     case 0xD1:
         pop(&regs->de, cpu);
-        return 12;
+        break;
 
     // PUSH DE
     case 0xD5:
         push(regs->de, cpu);
-        return 16;
+        break;
 
     // SUB A,u8
     case 0xD6:
-        sub_n8(next_token8(cpu), regs);
-        return 8;
+        alu_sub_r8(next_token8(cpu), 0, regs);
+        break;
 
     // RETI
     case 0xD9:
         reti(cpu);
-        return 16;
+        break;
 
     // SBC A,u8
     case 0xDE:
-        sbc_n8(next_token8(cpu), regs);
-        return 8;
+        alu_sub_r8(next_token8(cpu), regs->f_bits.c, regs);
+        break;
 
     // 0xE- ====================================================================
     // LDH (n8),A
     case 0xE0:
         ld_m_n8(0xFF00 + next_token8(cpu), regs->a, cpu);
-        return 12;
+        break;
 
     // POP HL
     case 0xE1:
         pop(&regs->hl, cpu);
-        return 12;
+        break;
 
     // LDH (c),A
     case 0xE2:
         ld_m_n8(0xFF00 + regs->c, regs->a, cpu);
-        return 8;
+        break;
 
     // PUSH HL
     case 0xE5:
         push(regs->hl, cpu);
-        return 16;
+        break;
 
     // AND A,u8
     case 0xE6:
-        and_n8(next_token8(cpu), regs);
-        return 8;
+        alu_and(next_token8(cpu), regs);
+        break;
 
     // ADD SP,u8
     case 0xE8:
         add_sp((int8_t)next_token8(cpu), cpu);
-        return 16;
+        break;
 
     // JP HL
     case 0xE9:
         regs->pc = regs->hl; // no cycles
-        return 4;
+        break;
 
     // LD (u16),A
     case 0xEA:
         ld_m_n8(next_token16(cpu), regs->a, cpu);
-        return 16;
+        break;
 
     // XOR A,u8
     case 0xEE:
-        xor_n8(next_token8(cpu), regs);
-        return 8;
+        alu_xor(next_token8(cpu), regs);
+        break;
 
     // 0xF- ====================================================================
     // LDH a,(n8)
     case 0xF0:
         ld_r8_n8(&regs->a, cpu_read8(cpu, 0xFF00 + next_token8(cpu)));
-        return 12;
+        break;
 
     // POP AF
     case 0xF1:
         pop(&regs->af, cpu);
         regs->f &= 0xF0;
-        return 12;
+        break;
 
     // LDH A,(c)
     case 0xF2:
         ld_r8_n8(&regs->a, cpu_read8(cpu, 0xFF00 + regs->c));
-        return 8;
+        break;
 
     // DI
     case 0xF3:
         di(regs);
-        return 4;
+        break;
 
     // PUSH AF
     case 0xF5:
         push(regs->af, cpu);
-        return 16;
+        break;
 
     // OR A,u8
     case 0xF6:
-        or_n8(next_token8(cpu), regs);
-        return 8;
+        alu_or(next_token8(cpu), regs);
+        break;
 
     // LD HL,SP+i8
     case 0xF8:
         ld_hl_spe((int8_t)next_token8(cpu), cpu);
-        return 12;
+        break;
 
     // LD SP,HL
     case 0xF9:
         ld_r16_n16(&regs->sp, regs->hl);
         cpu_idle(cpu);
-        return 8;
+        break;
 
     // LD A,(u16)
     case 0xFA:
         ld_r8_n8(&regs->a, cpu_read8(cpu, next_token16(cpu)));
-        return 16;
+        break;
 
     // EI
     case 0xFB:
         ei(regs);
-        return 4;
+        break;
 
     // CP A,n8
     case 0xFE:
-        cp_n8(next_token8(cpu), regs);
-        return 8;
+        alu_cp(next_token8(cpu), regs);
+        break;
 
     // -------------------------------------------------------------------------
     // JUMPS
@@ -1271,11 +1278,9 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
     case 0x30:
     case 0x38: {
         const uint8_t operand = next_token8(cpu);
-        if (cond_met(opcode, regs)) {
+        if (cond_met(opcode, regs))
             jr((int8_t)operand, cpu);
-            return 12;
-        }
-        return 8;
+        break;
     }
     // JP cc,a16
     case 0xC2:
@@ -1283,11 +1288,9 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
     case 0xD2:
     case 0xDA: {
         const uint16_t operand = next_token16(cpu);
-        if (cond_met(opcode, regs)) {
+        if (cond_met(opcode, regs))
             jp(operand, cpu);
-            return 16;
-        }
-        return 12;
+        break;
     }
 
     // CALL cc/RET cc/RST
@@ -1296,22 +1299,18 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
     case 0xD4:
     case 0xDC: {
         const uint16_t operand = next_token16(cpu);
-        if (cond_met(opcode, regs)) {
+        if (cond_met(opcode, regs))
             call(operand, cpu);
-            return 24;
-        }
-        return 12;
+        break;
     }
     case 0xC0:
     case 0xC8:
     case 0xD0:
     case 0xD8:
         cpu_idle(cpu);
-        if (cond_met(opcode, regs)) {
+        if (cond_met(opcode, regs))
             ret(cpu);
-            return 20;
-        }
-        return 8;
+        break;
     case 0xC7:
     case 0xCF:
     case 0xD7:
@@ -1321,7 +1320,7 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
     case 0xF7:
     case 0xFF:
         call(opcode & 0x38, cpu);
-        return 16;
+        break;
 
     default:
         fprintf(stderr, "error opcode: %02X\n", opcode);
@@ -1332,11 +1331,7 @@ static uint8_t cpu_execute(struct cpu *cpu, bool trace) {
 }
 
 void cpu_step(struct cpu *cpu, bool trace) {
-    const uint64_t before = cpu->cycles;
-    const uint8_t declared = cpu_execute(cpu, trace);
-    assert(cpu->cycles - before == declared);
-    while (cpu->cycles - before < declared)
-        cpu_tick(cpu);
+    cpu_execute(cpu, trace);
 }
 
 void cpu_regs_print(struct cpu_regs *regs) {
