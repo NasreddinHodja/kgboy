@@ -17,32 +17,25 @@ void bus_mem_init(struct bus *bus, struct cart *cart, struct ppu *ppu,
 }
 
 static uint8_t bus_mem_read_n_high(struct bus *bus, uint16_t addr) {
-    // still in echo RAM
-    if (addr < 0xFE00)
+    if (addr < 0xFE00) // still in echo ram
         return bus->wram[addr & 0x1FFF];
-    // OAM
-    if (addr < 0xFEA0) {
+    if (addr < 0xFEA0) { // oam
         return bus->oam[addr - 0xFE00];
-        // joypad
-    } else if (addr == 0xFF00) {
+    } else if (addr == 0xFF00) { // joypad
         return joypad_read(bus->jp);
-        // NOT USABLE
-    } else if (addr < 0xFF00) {
+    } else if (addr < 0xFF00) { // NOT USABLE
         return 0xFF;
-        // IO registers
-    } else if (addr == 0xFF0F) {
+    } else if (addr == 0xFF0F) { // io registers
         return bus->io[0x0F] | 0xE0; // IE top 3 bits are always 1
-    } else if (addr >= 0xFF04 && addr <= 0xFF07) {
+    } else if (addr >= 0xFF04 && addr <= 0xFF07) { // timer
         return timer_read_r(bus->timer, addr);
-    } else if (addr >= 0xFF40 && addr <= 0xFF4B) {
+    } else if (addr >= 0xFF40 && addr <= 0xFF4B) { // ppu
         return ppu_read_r(bus->ppu, addr);
-    } else if (addr < 0xFF80) {
+    } else if (addr < 0xFF80) { // io
         return bus->io[addr - 0xFF00];
-        // HRAM
-    } else if (addr < 0xFFFF) {
+    } else if (addr < 0xFFFF) { // hram
         return bus->hram[addr - 0xFF80];
-        // IE register
-    } else {
+    } else { // IE register
         return bus->ie;
     }
     return 0xFF;
@@ -93,14 +86,11 @@ static void bus_oam_dma_transfer(struct bus *bus, uint8_t val) {
 }
 
 static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
-    // still in echo RAM
-    if (addr < 0xFE00) {
+    if (addr < 0xFE00) { // still in echo ram
         bus->wram[addr & 0x1FFF] = val;
-        // OAM
-    } else if (addr < 0xFEA0) {
+    } else if (addr < 0xFEA0) { // oam
         bus->oam[addr - 0xFE00] = val;
-        // NOT USABLE
-    } else if (addr < 0xFF00) {
+    } else if (addr < 0xFF00) { // NOT USABLE
         return;
     } else if (addr == 0xFF00) { // joypad
         joypad_write(bus->jp, val);
@@ -112,20 +102,16 @@ static void bus_mem_write_n_high(struct bus *bus, uint16_t addr, uint8_t val) {
         bus_request_interrupt(bus, INT_SERIAL);
     } else if (addr >= 0xFF04 && addr <= 0xFF07) { // timer
         timer_write_r(bus->timer, addr, val);
-        // IO registers
-    } else if (addr >= 0xFF40 && addr <= 0xFF4B) {
+    } else if (addr >= 0xFF40 && addr <= 0xFF4B) { // IO registers
         if (addr == 0xFF46)
             bus_oam_dma_transfer(bus, val);
         else
-            ppu_write_r(bus->ppu, addr, val);
-        // OAM DAM transfer
-    } else if (addr < 0xFF80) {
+            ppu_write_r(bus->ppu, addr, val, bus);
+    } else if (addr < 0xFF80) { // OAM DAM transfer
         bus->io[addr - 0xFF00] = val;
-        // HRAM
-    } else if (addr < 0xFFFF) {
+    } else if (addr < 0xFFFF) { // hram
         bus->hram[addr - 0xFF80] = val;
-        // IE register
-    } else {
+    } else { // ie register
         bus->ie = val;
     }
     return;
@@ -184,9 +170,9 @@ int bus_mem_print(struct bus *bus, uint16_t start, size_t length) {
     }
 
     for (size_t i = 0; i < (length + 15) / 16; i++) {
-        // print addr for line
+        // addr for line
         fprintf(stdout, "%04X:  ", (uint16_t)(start + (16 * i)));
-        // print data in line
+        // data in line
         for (size_t j = 0; j < 16 && ((i * 16) + j) < length; j++) {
             uint16_t addr = (uint16_t)(start + (i * 16) + j);
             fprintf(stdout, "%02X ", bus_mem_read8(bus, addr));

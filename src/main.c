@@ -2,6 +2,7 @@
 #include "display.h"
 #include "gb.h"
 #include "bus.h"
+#include <assert.h>
 #include <getopt.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -36,7 +37,7 @@ int main(int argc, char *argv[]) {
     gb_init(&gb, rom_path, trace);
 
     struct display disp;
-    display_init(&disp);
+    assert(display_init(&disp));
 
     fprintf(stdout, "\n");
 

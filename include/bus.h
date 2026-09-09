@@ -7,7 +7,7 @@
 
 enum interrupt {
     INT_VBLANK,
-    INT_LCD,
+    INT_STAT,
     INT_TIMER,
     INT_SERIAL,
     INT_JOYPAD,

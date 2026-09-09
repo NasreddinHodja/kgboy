@@ -1,5 +1,6 @@
 #include "display.h"
 #include "SDL_events.h"
+#include "SDL_render.h"
 #include "ppu.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@ bool display_init(struct display *display) {
         display_destroy(display);
         return false;
     }
+    SDL_RenderSetLogicalSize(display->ren, SCREEN_W, SCREEN_H);
 
     display->tex =
         SDL_CreateTexture(display->ren, SDL_PIXELFORMAT_ARGB8888,
@@ -51,11 +53,11 @@ void display_destroy(struct display *display) {
     }
     if (display->ren) {
         SDL_DestroyRenderer(display->ren);
-        display->tex = NULL;
+        display->ren = NULL;
     }
     if (display->win) {
         SDL_DestroyWindow(display->win);
-        display->tex = NULL;
+        display->win = NULL;
     }
     SDL_Quit();
 }
@@ -85,6 +87,11 @@ void display_present(struct display *display,
                 g = 24;
                 b = 32;
                 break;
+            default: 
+                r = 0;
+                g = 0;
+                b = 0;
+                break;
             }
             display->pixels[line * SCREEN_W + col] =
                 0xFF000000 | (r << 16) | (g << 8) | b;
@@ -99,17 +106,17 @@ void display_present(struct display *display,
 }
 static const struct {
     SDL_Keycode key;
-    bool        is_dpad;
-    uint8_t     bit;
+    bool is_dpad;
+    uint8_t bit;
 } keymap[] = {
-    { SDLK_d, true,  0 },   // right
-    { SDLK_l, true,  1 },   // left
-    { SDLK_c, true,  2 },   // up
-    { SDLK_b, true,  3 },   // down
-    { SDLK_y, false, 0 },   // A
-    { SDLK_o, false, 1 },   // B
-    { SDLK_u, false, 2 },   // Select
-    { SDLK_j, false, 3 },   // Start
+    {SDLK_d, true, 0},  // right
+    {SDLK_l, true, 1},  // left
+    {SDLK_c, true, 2},  // up
+    {SDLK_b, true, 3},  // down
+    {SDLK_y, false, 0}, // A
+    {SDLK_o, false, 1}, // B
+    {SDLK_u, false, 2}, // Select
+    {SDLK_j, false, 3}, // Start
 };
 
 bool display_poll(struct joypad *jp) {
@@ -130,8 +137,10 @@ bool display_poll(struct joypad *jp) {
             uint8_t *reg = keymap[i].is_dpad ? &jp->dpad : &jp->buttons;
             const uint8_t mask = 1 << keymap[i].bit;
 
-            if (pressed) *reg &= ~mask;   // 0 = pressed
-            else *reg |=  mask;
+            if (pressed)
+                *reg &= ~mask; // 0 = pressed
+            else
+                *reg |= mask;
             break;
         }
     }

@@ -47,13 +47,22 @@ void ppu_init(struct ppu *ppu) {
     ppu->wx = 0x00;
 }
 
+static uint8_t ppu_get_mode(struct ppu *ppu) {
+    return ppu->stat & 0x03;
+}
+
 static void ppu_set_mode(struct ppu *ppu, uint8_t m) {
     ppu->stat = (ppu->stat & 0xFC) | m;
 }
 
-/* static uint8_t ppu_get_mode(struct ppu *ppu) { */
-/*     return ppu->stat & 0x03; */
-/* } */
+static void ppu_recompute_stat_line(struct ppu *ppu, struct bus *bus) {
+    const bool prev_line = ppu->stat_line;
+    ppu->stat_line = (((ppu->stat >> 3) & 1) && ppu_get_mode(ppu) == 0)
+        || (((ppu->stat >> 4) & 1) && ppu_get_mode(ppu) == 1)
+        || (((ppu->stat >> 5) & 1) && ppu_get_mode(ppu) == 2)
+        || (((ppu->stat >> 6) & 1) && ppu->ly == ppu->lyc);
+    if (ppu->stat_line && !prev_line) bus_request_interrupt(bus, INT_STAT);
+}
 
 /* static void ppu_fb_dump_ppm(struct ppu *ppu) { */
 /*     char file_name[32]; */
@@ -231,7 +240,7 @@ void oam_scan(struct ppu *ppu, struct bus *bus) {
     }
 }
 
-void static ppu_pop_and_render(struct ppu *ppu, struct bus *bus) {
+static void ppu_pop_and_render(struct ppu *ppu, struct bus *bus) {
     if (ppu->wx >= 7 && ppu->pixel_x == ppu->wx - 7 && (ppu->lcdc & (1 << 5)) &&
         ppu->wy_triggered && !ppu->window_active) {
         ppu->window_active = true;
@@ -296,7 +305,9 @@ void static ppu_pop_and_render(struct ppu *ppu, struct bus *bus) {
     }
 
     struct fifo_item ob_item;
-    const struct fifo_item bg_item = ppu->bg_fifo[ppu->bg_fifo_head];
+    struct fifo_item bg_item = ppu->bg_fifo[ppu->bg_fifo_head];
+    if (!(ppu->lcdc & 1)) bg_item.color = (ppu->bgp & 3);
+
     ppu->bg_fifo_head = (ppu->bg_fifo_head + 1) & (FIFO_SIZE - 1);
     ppu->bg_fifo_len--;
     bool ob_win = false;
@@ -338,13 +349,17 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
 
     if (!(ppu->lcdc & (1 << 7))) {
         ppu->ly = 0;
+        ppu->stat |= (ppu->ly == ppu->lyc) << 2;
         ppu_set_mode(ppu, 0);
+        ppu_recompute_stat_line(ppu, bus);
         ppu->dots = 0;
         return;
     }
 
     for (size_t c = 0; c < cycles; c++) {
         ppu->dots++;
+
+        ppu->stat |= (ppu->ly == ppu->lyc) << 2;
 
         if (ppu->ly < 144) {
             if (ppu->dots == 1) { // mode 2
@@ -354,6 +369,7 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
             } else if (ppu->dots == 80) { // reset for mode 3
                 ppu->window_active = false;
                 ppu_set_mode(ppu, 3);
+                ppu_recompute_stat_line(ppu, bus);
                 ppu->bg_fifo_len = 0;
                 ppu->bg_fifo_head = 0;
                 ppu->fetcher_state = FETCHER_GET_TILE_NUM;
@@ -369,24 +385,33 @@ void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus) {
                 ppu_fetcher_tick(ppu, bus);
             } else if (ppu->pixel_x == 160) { // mode 0
                 ppu_set_mode(ppu, 0);
+                ppu_recompute_stat_line(ppu, bus);
             }
         }
 
         if (ppu->dots == 456) {
+            if (ppu->window_active) ppu->window_line++;
             ppu->dots = 0;
             ppu->ly++;
+            ppu_recompute_stat_line(ppu, bus);
+            ppu->stat |= (ppu->ly == ppu->lyc) << 2;
+
 
             if (ppu->ly == 144) {
                 ppu_set_mode(ppu, 1);
+                ppu_recompute_stat_line(ppu, bus);
                 bus_request_interrupt(bus, INT_VBLANK);
                 ppu->wy_triggered = false;
                 ppu_frame_done(ppu);
             } else if (ppu->ly == 154) {
                 ppu->ly = 0;
+                ppu->stat |= (ppu->ly == ppu->lyc) << 2;
                 ppu->window_line = 0;
                 ppu_set_mode(ppu, 2);
+                ppu_recompute_stat_line(ppu, bus);
             } else if (ppu->ly < 144) {
                 ppu_set_mode(ppu, 2);
+                ppu_recompute_stat_line(ppu, bus);
             }
         }
     }
@@ -423,7 +448,7 @@ uint8_t ppu_read_r(struct ppu *ppu, uint16_t addr) {
     }
 }
 
-void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val) {
+void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val, struct bus *bus) {
     // LY guard
     if (addr == 0xFF44)
         return;
@@ -434,6 +459,7 @@ void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val) {
         break;
     case 0xFF41:
         ppu->stat = (val & 0x78) | (ppu->stat & 0x87); // only 3-6 are writable
+        ppu_recompute_stat_line(ppu, bus);
         break;
     case 0xFF42:
         ppu->scy = val;
@@ -446,6 +472,8 @@ void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val) {
         break;
     case 0xFF45:
         ppu->lyc = val;
+        ppu->stat |= (ppu->ly == ppu->lyc) << 2;
+        ppu_recompute_stat_line(ppu, bus);
         break;
     case 0xFF46: // OAM DMA triggered in bus
         ppu->dma = val;

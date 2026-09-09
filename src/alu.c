@@ -9,6 +9,7 @@ void alu_add_r8(uint8_t val, uint8_t carry_in, struct cpu_regs *regs) {
     regs->f_bits.z = !(regs->a);
     regs->f_bits.n = 0;
 }
+
 void alu_add_r16(uint16_t *dst, uint16_t val, struct cpu_regs *regs) {
     uint32_t res = *dst + val;
     regs->f_bits.n = 0;
@@ -43,6 +44,7 @@ void alu_rrc(uint8_t *dst, struct cpu_regs *regs) {
     regs->f_bits.h = 0;
     regs->f_bits.z = (*dst == 0);
 }
+
 void alu_rl(uint8_t *dst, struct cpu_regs *regs) {
     const uint8_t res = (*dst << 1) | regs->f_bits.c;
     regs->f_bits.c = (*dst >> 7) & 0x1;
@@ -51,6 +53,7 @@ void alu_rl(uint8_t *dst, struct cpu_regs *regs) {
     regs->f_bits.z = (res == 0);
     *dst = res;
 }
+
 void alu_rr(uint8_t *dst, struct cpu_regs *regs) {
     const uint8_t res = (regs->f_bits.c << 7) | (*dst >> 1);
     regs->f_bits.c = *dst & 0x1;
@@ -80,6 +83,7 @@ void alu_srl(uint8_t *dst, struct cpu_regs *regs) {
     regs->f_bits.h = 0;
     regs->f_bits.z = (*dst == 0);
 }
+
 void alu_swap(uint8_t *dst, struct cpu_regs *regs) {
     *dst = ((*dst & 0x0F) << 4) | ((*dst & 0xF0) >> 4);
     regs->f_bits.c = 0;
@@ -117,6 +121,7 @@ void alu_and(uint8_t val, struct cpu_regs *regs) {
     regs->f_bits.h = 1;
     regs->f_bits.c = 0;
 }
+
 void alu_or(uint8_t val, struct cpu_regs *regs) {
     regs->a = regs->a | val;
     regs->f_bits.z = !regs->a;
@@ -124,6 +129,7 @@ void alu_or(uint8_t val, struct cpu_regs *regs) {
     regs->f_bits.h = 0;
     regs->f_bits.c = 0;
 }
+
 void alu_xor(uint8_t val, struct cpu_regs *regs) {
     regs->a = regs->a ^ val;
     regs->f_bits.z = !regs->a;
@@ -183,5 +189,6 @@ void alu_bit(uint8_t idx, uint8_t *dst, struct cpu_regs *regs) {
     regs->f_bits.n = 0;
     regs->f_bits.h = 1;
 }
+
 void alu_res(uint8_t idx, uint8_t *dst) { *dst = (*dst & ~(1 << idx)); }
 void alu_set(uint8_t idx, uint8_t *dst) { *dst = (*dst | (1 << idx)); }

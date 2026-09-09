@@ -60,6 +60,7 @@ struct ppu {
     bool window_active;
     uint8_t window_line;
     bool wy_triggered;
+    bool stat_line;
 
     // regs
     uint8_t lcdc; // FF40 lcd control
@@ -79,6 +80,6 @@ struct ppu {
 void ppu_init(struct ppu *ppu);
 void ppu_tick(struct ppu *ppu, size_t cycles, struct bus *bus);
 uint8_t ppu_read_r(struct ppu *ppu, uint16_t addr);
-void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val);
+void ppu_write_r(struct ppu *ppu, uint16_t addr, uint8_t val, struct bus *bus);
 
 #endif // PPU_H_

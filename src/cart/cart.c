@@ -109,9 +109,9 @@ int cart_load(struct cart *cart, const char *path) {
         break;
     case 0x01: // mbc1
     case 0x02: // mbc1 + ram
+    case 0x03: // mbc1 + ram + battery
         mbc1_init(cart);
         break;
-    case 0x03: // mbc1 + ram + battery
     case 0x05: // mbc2
     case 0x06: // mbc2 + battery
     case 0x08: // rom+ram
