@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
         gb_step(&gb);
         if (gb.ppu.frame_ready) {
             gb.ppu.frame_ready = false;
-            display_present(&disp, gb.ppu.fb, gb.ppu.bgp);
+            display_present(&disp, gb.ppu.fb);
             running = display_poll(&gb.jp);
         }
         if (trace) fprintf(stdout, "Ran %lu t-cycles.\n\n", gb.cpu.cycles);

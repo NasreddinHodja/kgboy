@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum Interrupt {
+enum interrupt {
     INT_VBLANK,
     INT_LCD,
     INT_TIMER,
@@ -38,5 +38,5 @@ void bus_mem_write16(struct bus *bus, uint16_t addr, uint16_t val);
 
 int bus_mem_print(struct bus *bus, uint16_t start, size_t length);
 
-void bus_request_interrupt(struct bus *bus, enum Interrupt intr);
+void bus_request_interrupt(struct bus *bus, enum interrupt intr);
 #endif // BUS_H_

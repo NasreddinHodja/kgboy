@@ -46,3 +46,10 @@ clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)
 
 .PHONY: clean
+
+blarggs: $(TARGET)
+	$< -r roms/blargg/cpu_instrs/cpu_instrs.gb
+	$< -r roms/blargg/instr_timing/instr_timing.gb
+	$< -r roms/blargg/mem_timing/mem_timing.gb
+
+.PHONY: blarggs

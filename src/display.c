@@ -61,14 +61,13 @@ void display_destroy(struct display *display) {
 }
 
 void display_present(struct display *display,
-                     const uint8_t fb[SCREEN_H][SCREEN_W], uint8_t bgp) {
+                     const uint8_t fb[SCREEN_H][SCREEN_W]) {
     for (size_t line = 0; line < SCREEN_H; line++) {
         for (size_t col = 0; col < SCREEN_W; col++) {
-            const uint8_t shade = (bgp >> (fb[line][col] * 2)) & 3;
             unsigned char r = 224;
             unsigned char g = 248;
             unsigned char b = 208;
-            switch (shade) {
+            switch (fb[line][col]) {
             case 0: // white
                 break;
             case 1: // light gray

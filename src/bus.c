@@ -200,6 +200,6 @@ int bus_mem_print(struct bus *bus, uint16_t start, size_t length) {
     return 0;
 }
 
-void bus_request_interrupt(struct bus *bus, enum Interrupt intr) {
+void bus_request_interrupt(struct bus *bus, enum interrupt intr) {
     bus->io[0x0F] |= (1 << intr);
 }

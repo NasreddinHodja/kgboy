@@ -15,8 +15,7 @@ struct display {
 };
 
 bool display_init(struct display *display);
-void display_present(struct display *display, const uint8_t fb[144][160],
-                     uint8_t bgp);
+void display_present(struct display *display, const uint8_t fb[144][160]);
 bool display_poll(struct joypad *jp);
 void display_destroy(struct display *display);
 
